@@ -44,6 +44,10 @@ object ParamNames {
     const val CONTEXT = "context"
     const val CASE_SENSITIVE = "caseSensitive"
 
+    // FindClassByFqn parameters
+    const val INCLUDE_SOURCE = "includeSource"
+    const val MAX_SOURCE_LENGTH = "maxSourceLength"
+
     // Preview parameters
     const val FULL_ELEMENT_PREVIEW = "fullElementPreview"
     const val MAX_PREVIEW_LINES = "maxPreviewLines"

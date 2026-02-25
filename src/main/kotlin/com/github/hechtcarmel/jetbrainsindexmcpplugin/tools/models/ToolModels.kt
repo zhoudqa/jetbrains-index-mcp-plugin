@@ -269,3 +269,24 @@ data class TextMatch(
     val context: String,       // line content
     val contextType: String    // "CODE", "COMMENT", "STRING_LITERAL"
 )
+
+// ide_find_class_by_fqn output
+@Serializable
+data class FindClassByFqnResult(
+    val qualifiedName: String,
+    val found: Boolean,
+    val results: List<ClassLocation> = emptyList()
+)
+
+@Serializable
+data class ClassLocation(
+    val fqn: String,
+    val packageName: String?,
+    val className: String,
+    val filePath: String?,           // virtual file path (jar://... or file://...)
+    val jarPath: String?,            // 若来自 jar，则为 jar 绝对路径
+    val isFromSource: Boolean,       // true: 源码, false: decompiled class
+    val language: String = "JAVA",
+    val source: String? = null,      // source code or decompiled source
+    val sourceTruncated: Boolean = false
+)

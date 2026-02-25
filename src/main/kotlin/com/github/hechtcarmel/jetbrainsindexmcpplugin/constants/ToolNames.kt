@@ -11,12 +11,14 @@ object ToolNames {
     const val FIND_SUPER_METHODS = "ide_find_super_methods"
     const val FILE_STRUCTURE = "ide_file_structure"
     const val FIND_CLASS = "ide_find_class"
+    const val FIND_CLASS_BY_FQN = "ide_find_class_by_fqn"
     const val FIND_FILE = "ide_find_file"
     const val SEARCH_TEXT = "ide_search_text"
     const val READ_FILE = "ide_read_file"
 
     // Intelligence tools
     const val DIAGNOSTICS = "ide_diagnostics"
+    const val CHECK_CLASS_ERRORS = "ide_check_class_errors"
 
     // Project tools
     const val INDEX_STATUS = "ide_index_status"

@@ -4,9 +4,11 @@ import com.github.hechtcarmel.jetbrainsindexmcpplugin.handlers.LanguageHandlerRe
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.server.McpServerService
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.server.models.ToolDefinition
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.settings.McpSettings
+import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.intelligence.CheckClassErrorsTool
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.editor.GetActiveFileTool
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.editor.OpenFileTool
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.intelligence.GetDiagnosticsTool
+import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.navigation.FindClassByFqnTool
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.navigation.FindClassTool
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.navigation.FindDefinitionTool
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.navigation.FindFileTool
@@ -16,6 +18,7 @@ import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.navigation.SearchTex
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.project.GetIndexStatusTool
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.project.SyncFilesTool
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.refactoring.RenameSymbolTool
+import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.refactoring.SafeDeleteTool
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.util.JavaPluginDetector
 import com.intellij.openapi.diagnostic.logger
 import java.util.concurrent.ConcurrentHashMap
@@ -212,6 +215,7 @@ class ToolRegistry {
 
         // Intelligence tools
         register(GetDiagnosticsTool())
+        register(CheckClassErrorsTool())
 
         // Project tools
         register(GetIndexStatusTool())
@@ -310,7 +314,10 @@ class ToolRegistry {
                 register(tool)
             }
 
-            LOG.info("Registered Java-specific refactoring tools")
+            // Register Java-specific navigation tools
+            register(FindClassByFqnTool())
+
+            LOG.info("Registered Java-specific refactoring and navigation tools")
         } catch (e: Exception) {
             LOG.warn("Failed to register Java refactoring tools: ${e.message}")
         }
