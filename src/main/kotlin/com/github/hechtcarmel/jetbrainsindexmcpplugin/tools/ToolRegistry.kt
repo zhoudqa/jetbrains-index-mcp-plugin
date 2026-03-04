@@ -20,7 +20,6 @@ import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.project.SyncFilesToo
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.refactoring.ReformatCodeTool
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.refactoring.RenameSymbolTool
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.refactoring.SafeDeleteTool
-import com.github.hechtcarmel.jetbrainsindexmcpplugin.util.JavaPluginDetector
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.util.PluginDetectors
 import com.intellij.openapi.diagnostic.logger
 import java.util.concurrent.ConcurrentHashMap

@@ -1,6 +1,6 @@
 # IDE Index MCP Server
 
-![Build](https://github.com/hechtcarmel/jetbrains-index-mcp-plugin/workflows/Build/badge.svg)
+![Build](https://github.com/zhoudqa/jetbrains-index-mcp-plugin/workflows/Build/badge.svg)
 [![Version](https://img.shields.io/jetbrains/plugin/v/29174.svg)](https://plugins.jetbrains.com/plugin/29174-ide-index-mcp-server)
 [![Downloads](https://img.shields.io/jetbrains/plugin/d/29174.svg)](https://plugins.jetbrains.com/plugin/29174-ide-index-mcp-server)
 
@@ -77,7 +77,7 @@ Go to [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/29174-ide-ind
 
 ### Manual Installation
 
-Download the [latest release](https://github.com/hechtcarmel/jetbrains-index-mcp-plugin/releases/latest) and install it manually:
+Download the [latest release](https://github.com/zhoudqa/jetbrains-index-mcp-plugin/releases/latest) and install it manually:
 <kbd>Settings/Preferences</kbd> > <kbd>Plugins</kbd> > <kbd>⚙️</kbd> > <kbd>Install plugin from disk...</kbd>
 
 ## Quick Start
@@ -189,21 +189,21 @@ Add to `~/.codeium/windsurf/mcp_config.json` (adjust name and port for your IDE)
 
 Each JetBrains IDE has a unique default port and server name to allow running multiple IDEs simultaneously without conflicts:
 
-| IDE | Server Name | Default Port |
-|-----|-------------|--------------|
-| IntelliJ IDEA | `intellij-index` | 29170 |
-| Android Studio | `android-studio-index` | 29171 |
-| PyCharm | `pycharm-index` | 29172 |
-| WebStorm | `webstorm-index` | 29173 |
-| GoLand | `goland-index` | 29174 |
-| PhpStorm | `phpstorm-index` | 29175 |
-| RubyMine | `rubymine-index` | 29176 |
-| CLion | `clion-index` | 29177 |
-| RustRover | `rustrover-index` | 29178 |
-| DataGrip | `datagrip-index` | 29179 |
-| Aqua | `aqua-index` | 29180 |
-| DataSpell | `dataspell-index` | 29181 |
-| Rider | `rider-index` | 29182 |
+| IDE            | Server Name            | Default Port |
+| -------------- | ---------------------- | ------------ |
+| IntelliJ IDEA  | `intellij-index`       | 29170        |
+| Android Studio | `android-studio-index` | 29171        |
+| PyCharm        | `pycharm-index`        | 29172        |
+| WebStorm       | `webstorm-index`       | 29173        |
+| GoLand         | `goland-index`         | 29174        |
+| PhpStorm       | `phpstorm-index`       | 29175        |
+| RubyMine       | `rubymine-index`       | 29176        |
+| CLion          | `clion-index`          | 29177        |
+| RustRover      | `rustrover-index`      | 29178        |
+| DataGrip       | `datagrip-index`       | 29179        |
+| Aqua           | `aqua-index`           | 29180        |
+| DataSpell      | `dataspell-index`      | 29181        |
+| Rider          | `rider-index`          | 29182        |
 
 > **Tip**: Use the "Install on Coding Agents" button in the tool window - it automatically uses the correct server name and port for your IDE.
 
@@ -215,30 +215,30 @@ The plugin provides MCP tools organized by availability:
 
 These tools work in all supported JetBrains IDEs.
 
-| Tool | Description |
-|------|-------------|
-| `ide_find_references` | Find all references to a symbol across the entire project |
-| `ide_find_definition` | Find the definition/declaration location of a symbol |
-| `ide_diagnostics` | Analyze a file for problems (errors, warnings) and available intentions |
-| `ide_index_status` | Check if the IDE is in dumb mode or smart mode |
+| Tool                  | Description                                                             |
+| --------------------- | ----------------------------------------------------------------------- |
+| `ide_find_references` | Find all references to a symbol across the entire project               |
+| `ide_find_definition` | Find the definition/declaration location of a symbol                    |
+| `ide_diagnostics`     | Analyze a file for problems (errors, warnings) and available intentions |
+| `ide_index_status`    | Check if the IDE is in dumb mode or smart mode                          |
 
 ### Extended Tools (Language-Aware)
 
 These tools activate based on available language plugins:
 
-| Tool | Description | Languages |
-|------|-------------|-----------|
-| `ide_type_hierarchy` | Get the complete type hierarchy (supertypes and subtypes) | Java, Kotlin, Python, JS/TS, Go, Rust |
-| `ide_call_hierarchy` | Analyze method call relationships (callers or callees) | Java, Kotlin, Python, JS/TS, Go, Rust |
-| `ide_find_implementations` | Find all implementations of an interface or abstract method | Java, Kotlin, Python, JS/TS, Go, Rust |
-| `ide_find_symbol` | Search for symbols (classes, methods, fields) by name with fuzzy/camelCase matching | Java, Kotlin, Python, JS/TS, Go, Rust |
-| `ide_find_super_methods` | Find the full inheritance hierarchy of methods that a method overrides/implements | Java, Kotlin, Python, JS/TS, Go, Rust |
+| Tool                       | Description                                                                         | Languages                             |
+| -------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------- |
+| `ide_type_hierarchy`       | Get the complete type hierarchy (supertypes and subtypes)                           | Java, Kotlin, Python, JS/TS, Go, Rust |
+| `ide_call_hierarchy`       | Analyze method call relationships (callers or callees)                              | Java, Kotlin, Python, JS/TS, Go, Rust |
+| `ide_find_implementations` | Find all implementations of an interface or abstract method                         | Java, Kotlin, Python, JS/TS, Go, Rust |
+| `ide_find_symbol`          | Search for symbols (classes, methods, fields) by name with fuzzy/camelCase matching | Java, Kotlin, Python, JS/TS, Go, Rust |
+| `ide_find_super_methods`   | Find the full inheritance hierarchy of methods that a method overrides/implements   | Java, Kotlin, Python, JS/TS, Go, Rust |
 
 ### Refactoring Tools
 
-| Tool | Description | Languages |
-|------|-------------|-----------|
-| `ide_refactor_rename` | Rename a symbol and update all references | All languages |
+| Tool                       | Description                                         | Languages        |
+| -------------------------- | --------------------------------------------------- | ---------------- |
+| `ide_refactor_rename`      | Rename a symbol and update all references           | All languages    |
 | `ide_refactor_safe_delete` | Safely delete an element, checking for usages first | Java/Kotlin only |
 
 > **Note**: Refactoring tools modify source files. All changes support undo via <kbd>Ctrl/Cmd+Z</kbd>.
@@ -247,23 +247,23 @@ These tools activate based on available language plugins:
 
 **Fully Tested:**
 
-| IDE | Universal | Navigation | Refactoring |
-|-----|-----------|------------|-------------|
-| IntelliJ IDEA | ✓ 4 tools | ✓ 5 tools | ✓ 2 tools (rename + safe delete) |
-| Android Studio | ✓ 4 tools | ✓ 5 tools | ✓ 2 tools (rename + safe delete) |
-| PyCharm | ✓ 4 tools | ✓ 5 tools | ✓ 1 tool (rename) |
-| WebStorm | ✓ 4 tools | ✓ 5 tools | ✓ 1 tool (rename) |
-| GoLand | ✓ 4 tools | ✓ 5 tools | ✓ 1 tool (rename) |
-| RustRover | ✓ 4 tools | ✓ 5 tools | ✓ 1 tool (rename) |
-| PhpStorm | ✓ 4 tools | - | ✓ 1 tool (rename) |
+| IDE            | Universal | Navigation | Refactoring                      |
+| -------------- | --------- | ---------- | -------------------------------- |
+| IntelliJ IDEA  | ✓ 4 tools | ✓ 5 tools  | ✓ 2 tools (rename + safe delete) |
+| Android Studio | ✓ 4 tools | ✓ 5 tools  | ✓ 2 tools (rename + safe delete) |
+| PyCharm        | ✓ 4 tools | ✓ 5 tools  | ✓ 1 tool (rename)                |
+| WebStorm       | ✓ 4 tools | ✓ 5 tools  | ✓ 1 tool (rename)                |
+| GoLand         | ✓ 4 tools | ✓ 5 tools  | ✓ 1 tool (rename)                |
+| RustRover      | ✓ 4 tools | ✓ 5 tools  | ✓ 1 tool (rename)                |
+| PhpStorm       | ✓ 4 tools | -          | ✓ 1 tool (rename)                |
 
 **May Work (Untested):**
 
-| IDE | Universal | Navigation | Refactoring |
-|-----|-----------|------------|-------------|
-| RubyMine | ✓ 4 tools | - | ✓ 1 tool (rename) |
-| CLion | ✓ 4 tools | - | ✓ 1 tool (rename) |
-| DataGrip | ✓ 4 tools | - | ✓ 1 tool (rename) |
+| IDE      | Universal | Navigation | Refactoring       |
+| -------- | --------- | ---------- | ----------------- |
+| RubyMine | ✓ 4 tools | -          | ✓ 1 tool (rename) |
+| CLion    | ✓ 4 tools | -          | ✓ 1 tool (rename) |
+| DataGrip | ✓ 4 tools | -          | ✓ 1 tool (rename) |
 
 > **Note**: Navigation tools (type hierarchy, call hierarchy, find implementations, symbol search, find super methods) are available when language plugins are present. The rename tool works across all languages.
 
@@ -314,44 +314,44 @@ The plugin adds an "Index MCP Server" tool window (bottom panel) that shows:
 
 ### Tool Window Actions
 
-| Action | Description |
-|--------|-------------|
-| Refresh | Refresh server status and command history |
-| Copy URL | Copy the MCP server URL to clipboard |
-| Clear History | Clear the command history |
-| Export History | Export history to JSON or CSV file |
+| Action                       | Description                                                     |
+| ---------------------------- | --------------------------------------------------------------- |
+| Refresh                      | Refresh server status and command history                       |
+| Copy URL                     | Copy the MCP server URL to clipboard                            |
+| Clear History                | Clear the command history                                       |
+| Export History               | Export history to JSON or CSV file                              |
 | **Install on Coding Agents** | Install MCP server on AI assistants (prominent button on right) |
 
 ## Error Codes
 
 ### JSON-RPC Standard Errors
 
-| Code | Name | Description |
-|------|------|-------------|
-| -32700 | Parse Error | Failed to parse JSON-RPC request |
-| -32600 | Invalid Request | Invalid JSON-RPC request format |
-| -32601 | Method Not Found | Unknown method name |
-| -32602 | Invalid Params | Invalid or missing parameters |
-| -32603 | Internal Error | Unexpected internal error |
+| Code   | Name             | Description                      |
+| ------ | ---------------- | -------------------------------- |
+| -32700 | Parse Error      | Failed to parse JSON-RPC request |
+| -32600 | Invalid Request  | Invalid JSON-RPC request format  |
+| -32601 | Method Not Found | Unknown method name              |
+| -32602 | Invalid Params   | Invalid or missing parameters    |
+| -32603 | Internal Error   | Unexpected internal error        |
 
 ### Custom MCP Errors
 
-| Code | Name | Description |
-|------|------|-------------|
-| -32001 | Index Not Ready | IDE is in dumb mode (indexing in progress) |
-| -32002 | File Not Found | Specified file does not exist |
-| -32003 | Symbol Not Found | No symbol found at the specified position |
+| Code   | Name                 | Description                                           |
+| ------ | -------------------- | ----------------------------------------------------- |
+| -32001 | Index Not Ready      | IDE is in dumb mode (indexing in progress)            |
+| -32002 | File Not Found       | Specified file does not exist                         |
+| -32003 | Symbol Not Found     | No symbol found at the specified position             |
 | -32004 | Refactoring Conflict | Refactoring cannot be completed (e.g., name conflict) |
 
 ## Settings
 
 Configure the plugin at <kbd>Settings</kbd> > <kbd>Tools</kbd> > <kbd>Index MCP Server</kbd>:
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| Server Port | IDE-specific | MCP server port (range: 1024-65535, auto-restart on change). See [IDE-Specific Defaults](#ide-specific-defaults) |
-| Max History Size | 100 | Maximum number of commands to keep in history |
-| Sync External Changes | false | Sync external file changes before operations |
+| Setting               | Default      | Description                                                                                                      |
+| --------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------- |
+| Server Port           | IDE-specific | MCP server port (range: 1024-65535, auto-restart on change). See [IDE-Specific Defaults](#ide-specific-defaults) |
+| Max History Size      | 100          | Maximum number of commands to keep in history                                                                    |
+| Sync External Changes | false        | Sync external file changes before operations                                                                     |
 
 ## Requirements
 

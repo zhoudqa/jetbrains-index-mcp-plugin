@@ -89,7 +89,7 @@ class McpToolWindowFactory : ToolWindowFactory, DumbAware {
                 AllIcons.Vcs.Vendors.Github,
                 McpBundle.message("footer.github"),
                 McpBundle.message("footer.github.tooltip"),
-                "https://github.com/hechtcarmel/jetbrains-index-mcp-plugin"
+                "https://github.com/zhoudqa/jetbrains-index-mcp-plugin"
             ))
             add(createExternalLink(
                 McpIcons.DebuggerMcp,
