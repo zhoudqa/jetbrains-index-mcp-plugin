@@ -2,27 +2,21 @@ package com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.navigation
 
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.constants.ErrorMessages
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.constants.ParamNames
-import com.github.hechtcarmel.jetbrainsindexmcpplugin.constants.SchemaConstants
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.constants.ToolNames
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.server.models.ToolCallResult
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.AbstractMcpTool
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.models.DefinitionResult
+import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.schema.SchemaBuilder
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.util.PsiUtils
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiDirectory
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiNamedElement
-import com.intellij.psi.PsiPackage
 import com.intellij.psi.search.GlobalSearchScope
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.putJsonObject
 
 class FindDefinitionTool : AbstractMcpTool() {
 
@@ -43,40 +37,13 @@ class FindDefinitionTool : AbstractMcpTool() {
         Example: {"file": "src/Main.java", "line": 15, "column": 10}
     """.trimIndent()
 
-    override val inputSchema: JsonObject = buildJsonObject {
-        put(SchemaConstants.TYPE, SchemaConstants.TYPE_OBJECT)
-        putJsonObject(SchemaConstants.PROPERTIES) {
-            putJsonObject(ParamNames.PROJECT_PATH) {
-                put(SchemaConstants.TYPE, SchemaConstants.TYPE_STRING)
-                put(SchemaConstants.DESCRIPTION, "Absolute path to project root. Only needed when multiple projects are open in IDE.")
-            }
-            putJsonObject(ParamNames.FILE) {
-                put(SchemaConstants.TYPE, SchemaConstants.TYPE_STRING)
-                put(SchemaConstants.DESCRIPTION, "Path to file relative to project root (e.g., 'src/main/java/com/example/MyClass.java'). REQUIRED.")
-            }
-            putJsonObject(ParamNames.LINE) {
-                put(SchemaConstants.TYPE, SchemaConstants.TYPE_INTEGER)
-                put(SchemaConstants.DESCRIPTION, "1-based line number where the symbol reference is located. REQUIRED.")
-            }
-            putJsonObject(ParamNames.COLUMN) {
-                put(SchemaConstants.TYPE, SchemaConstants.TYPE_INTEGER)
-                put(SchemaConstants.DESCRIPTION, "1-based column number within the line. REQUIRED.")
-            }
-            putJsonObject(ParamNames.FULL_ELEMENT_PREVIEW) {
-                put(SchemaConstants.TYPE, SchemaConstants.TYPE_BOOLEAN)
-                put(SchemaConstants.DESCRIPTION, "If true, returns the complete element code instead of a preview snippet. Optional, defaults to false.")
-            }
-            putJsonObject(ParamNames.MAX_PREVIEW_LINES) {
-                put(SchemaConstants.TYPE, SchemaConstants.TYPE_INTEGER)
-                put(SchemaConstants.DESCRIPTION, "Maximum lines for fullElementPreview. Truncates large classes/functions. Default: 50, Max: 500. Only used when fullElementPreview=true.")
-            }
-        }
-        putJsonArray(SchemaConstants.REQUIRED) {
-            add(JsonPrimitive(ParamNames.FILE))
-            add(JsonPrimitive(ParamNames.LINE))
-            add(JsonPrimitive(ParamNames.COLUMN))
-        }
-    }
+    override val inputSchema: JsonObject = SchemaBuilder.tool()
+        .projectPath()
+        .file(description = "Path to file relative to project root (e.g., 'src/main/java/com/example/MyClass.java'). REQUIRED.")
+        .lineAndColumn()
+        .booleanProperty(ParamNames.FULL_ELEMENT_PREVIEW, "If true, returns the complete element code instead of a preview snippet. Optional, defaults to false.")
+        .intProperty(ParamNames.MAX_PREVIEW_LINES, "Maximum lines for fullElementPreview. Truncates large classes/functions. Default: 50, Max: 500. Only used when fullElementPreview=true.")
+        .build()
 
     override suspend fun doExecute(project: Project, arguments: JsonObject): ToolCallResult {
         val file = arguments[ParamNames.FILE]?.jsonPrimitive?.content
@@ -128,19 +95,29 @@ class FindDefinitionTool : AbstractMcpTool() {
                     symbolName = effectiveTarget.name
                 ))
             }
-            if (effectiveTarget is PsiPackage) {
-                val dirs = effectiveTarget.getDirectories(GlobalSearchScope.projectScope(project))
-                val dir = dirs.firstOrNull()
-                if (dir != null) {
-                    val dirPath = getRelativePath(project, dir.virtualFile)
-                    return@suspendingReadAction createJsonResult(DefinitionResult(
-                        file = dirPath,
-                        line = 1,
-                        column = 1,
-                        preview = "Package: ${effectiveTarget.qualifiedName}",
-                        symbolName = effectiveTarget.qualifiedName
-                    ))
+            // PsiPackage is Java-plugin-only; use reflection to avoid NoClassDefFoundError in non-Java IDEs
+            try {
+                val psiPackageClass = Class.forName("com.intellij.psi.PsiPackage")
+                if (psiPackageClass.isInstance(effectiveTarget)) {
+                    val qualifiedName = psiPackageClass.getMethod("getQualifiedName")
+                        .invoke(effectiveTarget) as? String ?: "unknown"
+                    val dirs = psiPackageClass
+                        .getMethod("getDirectories", GlobalSearchScope::class.java)
+                        .invoke(effectiveTarget, GlobalSearchScope.projectScope(project)) as Array<*>
+                    val dir = dirs.firstOrNull() as? PsiDirectory
+                    if (dir != null) {
+                        val dirPath = getRelativePath(project, dir.virtualFile)
+                        return@suspendingReadAction createJsonResult(DefinitionResult(
+                            file = dirPath,
+                            line = 1,
+                            column = 1,
+                            preview = "Package: $qualifiedName",
+                            symbolName = qualifiedName
+                        ))
+                    }
                 }
+            } catch (_: ClassNotFoundException) {
+                // Java plugin not available — skip PsiPackage handling
             }
 
             val targetFile = effectiveTarget.containingFile?.virtualFile

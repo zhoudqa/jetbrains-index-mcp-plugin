@@ -1,7 +1,12 @@
-package com.github.hechtcarmel.jetbrainsindexmcpplugin.server
+package com.github.hechtcarmel.jetbrainsindexmcpplugin.server.transport
 
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.McpConstants
+import com.github.hechtcarmel.jetbrainsindexmcpplugin.server.JsonRpcHandler
+import com.github.hechtcarmel.jetbrainsindexmcpplugin.server.models.JsonRpcError
+import com.github.hechtcarmel.jetbrainsindexmcpplugin.server.models.JsonRpcResponse
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.diagnostic.logger
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -13,6 +18,9 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import java.net.BindException
 
 /**
@@ -192,21 +200,25 @@ class KtorMcpServer(
     private suspend fun handleStreamableHttpRequest(call: ApplicationCall, body: String) {
         if (body.isBlank()) {
             call.respondText(
-                createJsonRpcError(null, -32700, "Empty request body"),
+                createJsonRpcError(null as JsonElement?, -32700, "Empty request body"),
                 ContentType.Application.Json
             )
             return
         }
 
         try {
-            val response = jsonRpcHandler.handleRequest(body)
-            if (response != null){
+            val response = withContext(ModalityState.any().asContextElement()) {
+                jsonRpcHandler.handleRequest(body)
+            }
+            if (response != null) {
                 call.respondText(response, ContentType.Application.Json)
+            } else {
+                call.respond(HttpStatusCode.Accepted)
             }
         } catch (e: Exception) {
             LOG.error("Error processing MCP request (Streamable HTTP)", e)
             call.respondText(
-                createJsonRpcError(null, -32603, e.message ?: "Internal error"),
+                createJsonRpcError(null as JsonElement?, -32603, e.message ?: "Internal error"),
                 ContentType.Application.Json
             )
         }
@@ -228,7 +240,7 @@ class KtorMcpServer(
             sseSessionManager.sendEvent(
                 sessionId,
                 "message",
-                createJsonRpcError(null, -32700, "Empty request body")
+                createJsonRpcError(null as JsonElement?, -32700, "Empty request body")
             )
             call.respond(HttpStatusCode.Accepted)
             return
@@ -252,21 +264,19 @@ class KtorMcpServer(
                 sseSessionManager.sendEvent(
                     sessionId,
                     "message",
-                    createJsonRpcError(null, -32603, e.message ?: "Internal error")
+                    createJsonRpcError(null as JsonElement?, -32603, e.message ?: "Internal error")
                 )
             }
         }
     }
 
-    /**
-     * Creates a JSON-RPC error response.
-     */
-    private fun createJsonRpcError(id: Any?, code: Int, message: String): String {
-        val idStr = when (id) {
-            null -> "null"
-            is String -> "\"$id\""
-            else -> id.toString()
-        }
-        return """{"jsonrpc":"2.0","id":$idStr,"error":{"code":$code,"message":"$message"}}"""
+    private val json = Json { encodeDefaults = true; prettyPrint = false }
+
+    private fun createJsonRpcError(id: JsonElement?, code: Int, message: String): String {
+        val response = JsonRpcResponse(
+            id = id,
+            error = JsonRpcError(code = code, message = message)
+        )
+        return json.encodeToString(response)
     }
 }

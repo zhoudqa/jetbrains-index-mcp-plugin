@@ -4,6 +4,56 @@
 
 ## [Unreleased]
 
+## [3.13.0] - 2026-03-03
+
+### Added
+- **`ide_reformat_code` tool** — Reformat code files using the IDE's code style settings (`.editorconfig`, project code style). Equivalent to the IDE's "Reformat Code" action (Ctrl+Alt+L / ⌘⌥L). Supports optional import optimization (`optimizeImports`, default: true), code rearrangement (`rearrangeCode`, default: true), and partial file formatting via `startLine`/`endLine`. Disabled by default — enable in Settings → Tools → Index MCP Server. ([#76](https://github.com/hechtcarmel/jetbrains-index-mcp-plugin/issues/76))
+
+## [3.12.2] - 2026-03-03
+
+### Fixed
+- **Tool filter dropdown in tool window was outdated**
+
+## [3.12.1] - 2026-03-03
+
+### Fixed
+- **Server stuck on "Initializing..." if `postStartupActivity` doesn't fire** — The MCP server now self-initializes asynchronously from its service constructor instead of depending solely on `postStartupActivity`. This fixes environments where the startup activity silently fails (e.g., due to plugin conflicts or class-loading errors), leaving the server permanently in "Initializing..." state ([#73](https://github.com/hechtcarmel/jetbrains-index-mcp-plugin/issues/73))
+
+## [3.12.0] - 2026-03-01
+
+### Added
+- **`overrideStrategy` parameter for `ide_refactor_rename`** — Controls how renaming a method that overrides a base method is handled, enabling fully headless/agent usage without modal dialogs
+  - `"rename_base"` (default): Automatically renames the base method and all overrides by resolving to the deepest super method via `PsiMethod.findDeepestSuperMethods()`, bypassing the dialog entirely
+  - `"rename_only_current"`: Renames only the current method, leaving the base and other overrides unchanged
+  - `"ask"`: Preserves original IDE behavior, showing the dialog for interactive choice
+
+## [3.11.0] - 2026-02-27
+
+### Changed
+- **Codebase refactoring overhaul** — Major internal cleanup reducing ~926 lines of duplication
+  - **Generic `PluginDetector`** — Replaced 6 nearly identical plugin detector files (640 lines) with a single generic `PluginDetector` class and `PluginDetectors` registry (~80 lines)
+  - **`SchemaBuilder` utility** — All 19 tool input schemas now use a fluent `SchemaBuilder` instead of manual JSON construction, eliminating ~460 lines of boilerplate
+  - **Data-driven registration** — Handler and tool registration use data-driven loops instead of duplicated reflection blocks
+  - **`ClassResolver`** — Extracted class-by-FQN resolution (PHP/Java) from `AbstractMcpTool` into standalone utility
+  - **`ProjectResolver`** — Extracted multi-project resolution logic from `JsonRpcHandler` into independently testable class
+  - **`server/transport/` package** — Moved `KtorMcpServer` and `KtorSseSessionManager` to dedicated transport sub-package
+  - **Consolidated error builders** — Replaced 4 nearly identical JSON-RPC error response methods with single factory
+
+### Fixed
+- **JSON-RPC error responses used unsafe string concatenation** — `KtorMcpServer.createJsonRpcError()` now uses proper `kotlinx.serialization` instead of manual string interpolation, preventing malformed JSON from special characters in error messages
+- **Streamable HTTP notifications returned no response** — Notifications (e.g., `notifications/initialized`) sent via Streamable HTTP transport now correctly return `202 Accepted` instead of silently dropping the connection
+- **No JSON-RPC version validation** — Server now validates that `request.jsonrpc == "2.0"` and returns `INVALID_REQUEST` (-32600) for non-compliant requests
+
+## [3.10.2] - 2026-02-27
+
+### Fixed
+- **Tools stop responding when a modal dialog is open** - MCP tool calls (e.g., `ide_sync_files`, `ide_refactor_rename`) no longer hang indefinitely when a modal dialog (Settings, Registry, refactoring preview, etc.) is open in the IDE
+
+## [3.10.1] - 2026-02-27
+
+### Fixed
+- **`ide_find_definition` crash in PhpStorm and other non-Java IDEs**
+
 ## [3.10.0] - 2026-02-22
 
 ### Added

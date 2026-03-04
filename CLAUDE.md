@@ -17,7 +17,7 @@ Create an MCP server within an IntelliJ plugin that allows AI coding assistants 
 ### Technology Stack
 - **Language**: Kotlin (JVM 21)
 - **Build System**: Gradle 9.0 with Kotlin DSL
-- **IDE Platform**: IntelliJ IDEA 2024.3+ (platformType = IC)
+- **IDE Platform**: IntelliJ IDEA 2025.1+ (platformType = IC)
 - **HTTP Server**: Ktor CIO 2.3.12 (embedded, configurable port)
 - **Protocol**: Model Context Protocol (MCP) 2024-11-05
 
@@ -46,33 +46,47 @@ src/
 │   ├── kotlin/com/github/hechtcarmel/jetbrainsindexmcpplugin/
 │   │   ├── MyBundle.kt                 # Resource bundle accessor
 │   │   ├── handlers/                   # Language-specific handlers
-│   │   │   ├── LanguageHandler.kt      # Handler interfaces
-│   │   │   ├── LanguageHandlerRegistry.kt # Handler registry
-│   │   │   ├── OptimizedSymbolSearch.kt # Optimized symbol search using platform APIs
+│   │   │   ├── LanguageHandler.kt      # Handler interfaces & data classes
+│   │   │   ├── LanguageHandlerRegistry.kt # Data-driven handler registry
+│   │   │   ├── OptimizedSymbolSearch.kt # Symbol search using platform APIs
 │   │   │   ├── java/JavaHandlers.kt    # Java/Kotlin handlers
 │   │   │   ├── python/PythonHandlers.kt # Python handlers (reflection)
 │   │   │   ├── javascript/JavaScriptHandlers.kt # JS/TS handlers (reflection)
 │   │   │   ├── go/GoHandlers.kt        # Go handlers (reflection)
 │   │   │   ├── php/PhpHandlers.kt      # PHP handlers (reflection)
 │   │   │   └── rust/RustHandlers.kt    # Rust handlers (reflection)
-│   │   ├── services/                   # Application/project services
+│   │   ├── server/                     # MCP server infrastructure
+│   │   │   ├── McpServerService.kt     # App-level service managing server lifecycle
+│   │   │   ├── JsonRpcHandler.kt       # JSON-RPC 2.0 request routing
+│   │   │   ├── ProjectResolver.kt      # Multi-project resolution with workspace support
+│   │   │   ├── models/                 # Protocol models (JsonRpc, MCP)
+│   │   │   └── transport/              # HTTP+SSE transport layer
+│   │   │       ├── KtorMcpServer.kt    # Embedded Ktor CIO server
+│   │   │       └── KtorSseSessionManager.kt # SSE session management
 │   │   ├── startup/                    # Startup activities
 │   │   ├── tools/                      # MCP tool implementations
-│   │   │   ├── editor/                 # Editor interaction tools
-│   │   │   ├── navigation/             # Navigation tools (multi-language)
-│   │   │   ├── refactoring/            # Refactoring tools (Java only)
-│   │   │   └── utils/                  # Plugin detectors
-│   │   └── toolWindow/                 # Tool window UI
+│   │   │   ├── McpTool.kt             # Tool interface
+│   │   │   ├── AbstractMcpTool.kt     # Base class (PSI sync, threading, helpers)
+│   │   │   ├── ToolRegistry.kt        # Data-driven tool registry
+│   │   │   ├── schema/                # Tool schema utilities
+│   │   │   │   └── SchemaBuilder.kt   # Fluent builder for input schemas
+│   │   │   ├── editor/                # Editor interaction tools
+│   │   │   ├── navigation/            # Navigation tools (multi-language)
+│   │   │   ├── intelligence/          # Code analysis tools
+│   │   │   ├── project/               # Project status tools
+│   │   │   └── refactoring/           # Refactoring tools
+│   │   ├── util/                      # Utilities
+│   │   │   ├── PluginDetector.kt      # Generic plugin availability detector
+│   │   │   ├── PluginDetectors.kt     # Registry of all language detectors
+│   │   │   ├── ClassResolver.kt       # Class lookup by FQN (Java, PHP)
+│   │   │   ├── ProjectUtils.kt        # Project/workspace helpers
+│   │   │   ├── PsiUtils.kt            # PSI navigation helpers
+│   │   │   └── ThreadingUtils.kt      # Threading utilities
+│   │   └── ui/                        # Tool window UI
 │   └── resources/
 │       ├── META-INF/
 │       │   ├── plugin.xml              # Plugin configuration
-│       │   ├── java-features.xml       # Java-specific extensions
-│       │   ├── kotlin-features.xml     # Kotlin-specific extensions
-│       │   ├── python-features.xml     # Python-specific extensions
-│       │   ├── javascript-features.xml # JS/TS-specific extensions
-│       │   ├── go-features.xml         # Go-specific extensions
-│       │   ├── php-features.xml        # PHP-specific extensions
-│       │   └── rust-features.xml       # Rust-specific extensions
+│       │   └── *-features.xml          # Optional language-specific extensions
 │       └── messages/MyBundle.properties # i18n messages
 └── test/
     ├── kotlin/                         # Test sources
@@ -107,7 +121,7 @@ src/
 The plugin supports workspace projects where a single IDE window contains multiple sub-projects
 represented as modules with separate content roots:
 
-- **Project resolution** (`JsonRpcHandler.resolveProject`): Checks exact basePath → module content roots → subdirectory match
+- **Project resolution** (`ProjectResolver.resolve`): Checks exact basePath → module content roots → subdirectory match
 - **File resolution** (`AbstractMcpTool.resolveFile`): Tries basePath, then module content roots
 - **Relative path computation** (`ProjectUtils.getRelativePath`): Strips the matching content root prefix
 - **VFS/PSI sync** (`AbstractMcpTool.ensurePsiUpToDate`): Refreshes all content roots, not just basePath
@@ -212,28 +226,23 @@ before executing any tool. This ensures PSI is synchronized with external file c
 
 ### Tool Schema Guidelines
 
-When defining `inputSchema` for MCP tools, use JSON Schema `enum` for parameters with a fixed set of valid values. This gives LLM clients auto-validation and clear error messages instead of relying on description text alone.
+All tool input schemas MUST use `SchemaBuilder` (in `tools/schema/SchemaBuilder.kt`). This eliminates boilerplate and ensures consistency:
 
 ```kotlin
-// ✗ Bad — values only in description, no validation
-putJsonObject(ParamNames.MATCH_MODE) {
-    put(SchemaConstants.TYPE, SchemaConstants.TYPE_STRING)
-    put(SchemaConstants.DESCRIPTION, "How to match: \"substring\", \"prefix\", or \"exact\".")
-}
+// ✓ Use SchemaBuilder for all tool schemas
+override val inputSchema = SchemaBuilder.tool()
+    .projectPath()
+    .file()
+    .lineAndColumn()
+    .intProperty("maxResults", "Maximum results to return. Default: 100, max: 500.")
+    .build()
 
-// ✓ Good — enum validates input and is visible to LLMs
-putJsonObject(ParamNames.MATCH_MODE) {
-    put(SchemaConstants.TYPE, SchemaConstants.TYPE_STRING)
-    put(SchemaConstants.DESCRIPTION, "How to match the query. Default: \"substring\".")
-    putJsonArray("enum") {
-        add(JsonPrimitive("substring"))
-        add(JsonPrimitive("prefix"))
-        add(JsonPrimitive("exact"))
-    }
-}
+// For enum parameters:
+.enumProperty("matchMode", "How to match the query.", listOf("substring", "prefix", "exact"))
+
+// For complex properties that don't fit the builder, use the escape hatch:
+.property("target_type", buildJsonObject { /* custom schema */ })
 ```
-
-See `SearchTextTool.kt`'s `context` parameter for an existing example of this pattern.
 
 ## Building and Running
 
@@ -352,6 +361,7 @@ Tools are organized by IDE availability.
 - `ide_index_status` - Check indexing status (dumb/smart mode)
 - `ide_sync_files` - Force sync IDE's virtual file system and PSI cache with external file changes
 - `ide_refactor_rename` - Rename a symbol across the project with automatic related element renaming (getters/setters, overriding methods). Fully headless, works for ALL languages.
+- `ide_reformat_code` - Reformat code using project code style (.editorconfig, IDE settings). Supports optional import optimization and code rearrangement. (disabled by default)
 - `ide_get_active_file` - Get the currently active file(s) in the editor (disabled by default)
 - `ide_open_file` - Open a file in the editor with optional line/column navigation (disabled by default)
 
@@ -374,7 +384,7 @@ The plugin uses a language handler pattern for multi-IDE support:
 **Core Components:**
 - `LanguageHandler<T>` - Base interface for language-specific handlers
 - `LanguageHandlerRegistry` - Central registry managing all language handlers
-- `*PluginDetector` - Cached checks for language plugin availability (runs once at startup)
+- `PluginDetectors` - Central registry of language plugin availability detectors (runs once at startup)
 
 **Language Handlers (in `handlers/` package):**
 - `handlers/java/JavaHandlers.kt` - Direct PSI access for Java/Kotlin
@@ -463,12 +473,19 @@ VirtualFileManager   // Virtual file system
    - Solution: Enable "Sync external file changes" in Settings → MCP Server (WARNING: significant performance impact)
    - For custom code: `PsiDocumentManager.getInstance(project).commitAllDocuments()`
 
-## Contributing
+## Contributing / PR Checklist
 
-1. Follow existing code patterns
-2. Add tests for new functionality
-3. Update this documentation as needed
-4. Run `./gradlew runPluginVerifier` before submitting
+Every PR **must** include:
+
+1. **Version bump** — Update `pluginVersion` in `gradle.properties` following [SemVer](https://semver.org):
+   - **Patch** (3.x.**Y**): Bug fixes, internal refactoring with no behavior change
+   - **Minor** (3.**Y**.0): New features, new tools, protocol improvements
+   - **Major** (**Y**.0.0): Breaking changes to tool schemas, transport, or client configuration
+2. **CHANGELOG.md update** — Add an entry under `## [Unreleased]` following [Keep a Changelog](https://keepachangelog.com) format. Use sections: `Added`, `Changed`, `Fixed`, `Removed`, `Breaking`
+3. Follow existing code patterns and use `SchemaBuilder` for new tool schemas
+4. Add tests for new functionality
+5. Update this documentation (`CLAUDE.md`) for any structural or architectural changes
+6. Run `./gradlew test` to verify all tests pass (do NOT run platform tests yourself)
 
 ---
 
