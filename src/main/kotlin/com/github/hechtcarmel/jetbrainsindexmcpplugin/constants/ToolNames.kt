@@ -23,11 +23,13 @@ object ToolNames {
     // Project tools
     const val INDEX_STATUS = "ide_index_status"
     const val SYNC_FILES = "ide_sync_files"
+    const val BUILD_PROJECT = "ide_build_project"
 
     // Refactoring tools
     const val REFACTOR_RENAME = "ide_refactor_rename"
     const val REFACTOR_SAFE_DELETE = "ide_refactor_safe_delete"
     const val REFORMAT_CODE = "ide_reformat_code"
+    const val OPTIMIZE_IMPORTS = "ide_optimize_imports"
 
     // Editor tools
     const val GET_ACTIVE_FILE = "ide_get_active_file"
@@ -38,6 +40,7 @@ object ToolNames {
      * Keep this list in sync when adding or removing tool name constants.
      */
     val ALL: List<String> = listOf(
+        BUILD_PROJECT,
         CALL_HIERARCHY,
         DIAGNOSTICS,
         FILE_STRUCTURE,
@@ -51,6 +54,7 @@ object ToolNames {
         GET_ACTIVE_FILE,
         INDEX_STATUS,
         OPEN_FILE,
+        OPTIMIZE_IMPORTS,
         READ_FILE,
         REFACTOR_RENAME,
         REFACTOR_SAFE_DELETE,

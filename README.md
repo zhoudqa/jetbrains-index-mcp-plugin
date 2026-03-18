@@ -22,6 +22,7 @@ Advanced tools work across multiple languages based on available plugins:
 - **Python** - PyCharm (all editions), IntelliJ with Python plugin
 - **JavaScript & TypeScript** - WebStorm, IntelliJ Ultimate, PhpStorm
 - **Go** - GoLand, IntelliJ IDEA Ultimate with Go plugin
+- **PHP** - PhpStorm, IntelliJ Ultimate with PHP plugin
 - **Rust** - RustRover, IntelliJ IDEA Ultimate with Rust plugin, CLion
 
 **Universal Tools (All JetBrains IDEs)**
@@ -29,17 +30,27 @@ Advanced tools work across multiple languages based on available plugins:
 - **Go to Definition** - Navigate to symbol declarations
 - **Code Diagnostics** - Access errors, warnings, and quick fixes
 - **Index Status** - Check if code intelligence is ready
+- **Sync Files** - Force sync VFS/PSI cache after external file changes
+- **Build Project** - Trigger IDE build with structured error/warning output (disabled by default)
+- **Find Class** - Fast class/interface search by name with camelCase matching
+- **Find File** - Fast file search by name using IDE's file index
+- **Search Text** - Text search using IDE's pre-built word index
+- **Read File** - Read file content by path or qualified name, including library sources (disabled by default)
+- **Open File** - Open a file in the editor with optional navigation (disabled by default)
+- **Get Active File** - Get currently active editor file(s) with cursor position (disabled by default)
 
 **Extended Tools (Language-Aware)**
 These tools activate based on installed language plugins:
 - **Type Hierarchy** - Explore class inheritance chains
 - **Call Hierarchy** - Trace method/function call relationships
 - **Find Implementations** - Discover interface/abstract implementations
-- **Symbol Search** - Find by name with fuzzy/camelCase matching
+- **Symbol Search** - Find by name with fuzzy/camelCase matching (disabled by default)
 - **Find Super Methods** - Navigate method override hierarchies
+- **File Structure** - View hierarchical file structure like IDE's Structure view (disabled by default)
 
 **Refactoring Tools**
 - **Rename Refactoring** - Safe renaming with automatic related element renaming (getters/setters, overriding methods) - works across ALL languages, fully headless
+- **Reformat Code** - Reformat using project code style with import optimization (disabled by default)
 - **Safe Delete** - Remove code with usage checking (Java/Kotlin only)
 
 ### Why Use This Plugin?
@@ -110,13 +121,13 @@ Use the "Install on Coding Agents" button in the tool window, or run this comman
 
 ```bash
 # IntelliJ IDEA
-claude mcp add --transport http intellij-index http://127.0.0.1:29170/index-mcp/sse --scope user
+claude mcp add --transport http intellij-index http://127.0.0.1:29170/index-mcp/streamable-http --scope user
 
 # PyCharm
-claude mcp add --transport http pycharm-index http://127.0.0.1:29172/index-mcp/sse --scope user
+claude mcp add --transport http pycharm-index http://127.0.0.1:29172/index-mcp/streamable-http --scope user
 
 # WebStorm
-claude mcp add --transport http webstorm-index http://127.0.0.1:29173/index-mcp/sse --scope user
+claude mcp add --transport http webstorm-index http://127.0.0.1:29173/index-mcp/streamable-http --scope user
 ```
 
 Options:
@@ -131,13 +142,13 @@ Use the "Install on Coding Agents" button in the tool window, or run this comman
 
 ```bash
 # IntelliJ IDEA
-codex mcp add --transport sse intellij-index http://127.0.0.1:29170/index-mcp/sse
+codex mcp add intellij-index --url http://127.0.0.1:29170/index-mcp/streamable-http
 
 # PyCharm
-codex mcp add --transport sse pycharm-index http://127.0.0.1:29172/index-mcp/sse
+codex mcp add pycharm-index --url http://127.0.0.1:29172/index-mcp/streamable-http
 
 # WebStorm
-codex mcp add --transport sse webstorm-index http://127.0.0.1:29173/index-mcp/sse
+codex mcp add webstorm-index --url http://127.0.0.1:29173/index-mcp/streamable-http
 ```
 
 To remove: `codex mcp remove <server-name>` (e.g., `codex mcp remove intellij-index`)
@@ -150,7 +161,7 @@ Add to `.cursor/mcp.json` in your project root or `~/.cursor/mcp.json` globally 
 {
   "mcpServers": {
     "intellij-index": {
-      "url": "http://127.0.0.1:29170/index-mcp/sse"
+      "url": "http://127.0.0.1:29170/index-mcp/streamable-http"
     }
   }
 }
@@ -164,7 +175,7 @@ Add to `~/.codeium/windsurf/mcp_config.json` (adjust name and port for your IDE)
 {
   "mcpServers": {
     "intellij-index": {
-      "serverUrl": "http://127.0.0.1:29170/index-mcp/sse"
+      "serverUrl": "http://127.0.0.1:29170/index-mcp/streamable-http"
     }
   }
 }
@@ -176,8 +187,7 @@ Add to `~/.codeium/windsurf/mcp_config.json` (adjust name and port for your IDE)
 {
   "mcp.servers": {
     "intellij-index": {
-      "transport": "sse",
-      "url": "http://127.0.0.1:29170/index-mcp/sse"
+      "url": "http://127.0.0.1:29170/index-mcp/streamable-http"
     }
   }
 }
@@ -189,57 +199,64 @@ Add to `~/.codeium/windsurf/mcp_config.json` (adjust name and port for your IDE)
 
 Each JetBrains IDE has a unique default port and server name to allow running multiple IDEs simultaneously without conflicts:
 
-| IDE            | Server Name            | Default Port |
-| -------------- | ---------------------- | ------------ |
-| IntelliJ IDEA  | `intellij-index`       | 29170        |
-| Android Studio | `android-studio-index` | 29171        |
-| PyCharm        | `pycharm-index`        | 29172        |
-| WebStorm       | `webstorm-index`       | 29173        |
-| GoLand         | `goland-index`         | 29174        |
-| PhpStorm       | `phpstorm-index`       | 29175        |
-| RubyMine       | `rubymine-index`       | 29176        |
-| CLion          | `clion-index`          | 29177        |
-| RustRover      | `rustrover-index`      | 29178        |
-| DataGrip       | `datagrip-index`       | 29179        |
-| Aqua           | `aqua-index`           | 29180        |
-| DataSpell      | `dataspell-index`      | 29181        |
-| Rider          | `rider-index`          | 29182        |
+| IDE | Server Name | Default Port |
+|-----|-------------|--------------|
+| IntelliJ IDEA | `intellij-index` | 29170 |
+| Android Studio | `android-studio-index` | 29171 |
+| PyCharm | `pycharm-index` | 29172 |
+| WebStorm | `webstorm-index` | 29173 |
+| GoLand | `goland-index` | 29174 |
+| PhpStorm | `phpstorm-index` | 29175 |
+| RubyMine | `rubymine-index` | 29176 |
+| CLion | `clion-index` | 29177 |
+| RustRover | `rustrover-index` | 29178 |
+| DataGrip | `datagrip-index` | 29179 |
 
 > **Tip**: Use the "Install on Coding Agents" button in the tool window - it automatically uses the correct server name and port for your IDE.
 
 ## Available Tools
 
-The plugin provides MCP tools organized by availability:
+The plugin provides **21 MCP tools** organized by availability. Tools marked *(disabled by default)* can be enabled in <kbd>Settings</kbd> > <kbd>Tools</kbd> > <kbd>Index MCP Server</kbd>.
 
 ### Universal Tools
 
 These tools work in all supported JetBrains IDEs.
 
-| Tool                  | Description                                                             |
-| --------------------- | ----------------------------------------------------------------------- |
-| `ide_find_references` | Find all references to a symbol across the entire project               |
-| `ide_find_definition` | Find the definition/declaration location of a symbol                    |
-| `ide_diagnostics`     | Analyze a file for problems (errors, warnings) and available intentions |
-| `ide_index_status`    | Check if the IDE is in dumb mode or smart mode                          |
+| Tool | Description |
+|------|-------------|
+| `ide_find_references` | Find all references to a symbol across the entire project |
+| `ide_find_definition` | Find the definition/declaration location of a symbol |
+| `ide_find_class` | Search for classes/interfaces by name with camelCase/substring/wildcard matching |
+| `ide_find_file` | Search for files by name using IDE's file index |
+| `ide_search_text` | Text search using IDE's pre-built word index with context filtering |
+| `ide_diagnostics` | Analyze a file for problems (errors, warnings) and available intentions |
+| `ide_index_status` | Check if the IDE is in dumb mode or smart mode |
+| `ide_sync_files` | Force sync IDE's virtual file system and PSI cache with external file changes |
+| `ide_build_project` | Build project using IDE's build system (JPS, Gradle, Maven) with structured errors *(disabled by default)* |
+| `ide_read_file` | Read file content by path or qualified name, including library/jar sources *(disabled by default)* |
+| `ide_get_active_file` | Get the currently active file(s) in the editor with cursor position *(disabled by default)* |
+| `ide_open_file` | Open a file in the editor with optional line/column navigation *(disabled by default)* |
+| `ide_refactor_rename` | Rename a symbol and update all references across the project (all languages) |
+| `ide_reformat_code` | Reformat code using project code style with import optimization *(disabled by default)* |
 
 ### Extended Tools (Language-Aware)
 
 These tools activate based on available language plugins:
 
-| Tool                       | Description                                                                         | Languages                             |
-| -------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------- |
-| `ide_type_hierarchy`       | Get the complete type hierarchy (supertypes and subtypes)                           | Java, Kotlin, Python, JS/TS, Go, Rust |
-| `ide_call_hierarchy`       | Analyze method call relationships (callers or callees)                              | Java, Kotlin, Python, JS/TS, Go, Rust |
-| `ide_find_implementations` | Find all implementations of an interface or abstract method                         | Java, Kotlin, Python, JS/TS, Go, Rust |
-| `ide_find_symbol`          | Search for symbols (classes, methods, fields) by name with fuzzy/camelCase matching | Java, Kotlin, Python, JS/TS, Go, Rust |
-| `ide_find_super_methods`   | Find the full inheritance hierarchy of methods that a method overrides/implements   | Java, Kotlin, Python, JS/TS, Go, Rust |
+| Tool | Description | Languages |
+|------|-------------|-----------|
+| `ide_type_hierarchy` | Get the complete type hierarchy (supertypes and subtypes) | Java, Kotlin, Python, JS/TS, Go, PHP, Rust |
+| `ide_call_hierarchy` | Analyze method call relationships (callers or callees) | Java, Kotlin, Python, JS/TS, Go, PHP, Rust |
+| `ide_find_implementations` | Find all implementations of an interface or abstract method | Java, Kotlin, Python, JS/TS, PHP, Rust |
+| `ide_find_symbol` | Search for symbols (classes, methods, fields) by name with fuzzy/camelCase matching *(disabled by default)* | Java, Kotlin, Python, JS/TS, Go, PHP, Rust |
+| `ide_find_super_methods` | Find the full inheritance hierarchy of methods that a method overrides/implements | Java, Kotlin, Python, JS/TS, PHP |
+| `ide_file_structure` | Get hierarchical file structure (similar to IDE's Structure view) *(disabled by default)* | Java, Kotlin, Python, JS/TS |
 
-### Refactoring Tools
+### Java-Specific Refactoring Tools
 
-| Tool                       | Description                                         | Languages        |
-| -------------------------- | --------------------------------------------------- | ---------------- |
-| `ide_refactor_rename`      | Rename a symbol and update all references           | All languages    |
-| `ide_refactor_safe_delete` | Safely delete an element, checking for usages first | Java/Kotlin only |
+| Tool | Description |
+|------|-------------|
+| `ide_refactor_safe_delete` | Safely delete an element, checking for usages first (Java/Kotlin only) |
 
 > **Note**: Refactoring tools modify source files. All changes support undo via <kbd>Ctrl/Cmd+Z</kbd>.
 
@@ -247,25 +264,25 @@ These tools activate based on available language plugins:
 
 **Fully Tested:**
 
-| IDE            | Universal | Navigation | Refactoring                      |
-| -------------- | --------- | ---------- | -------------------------------- |
-| IntelliJ IDEA  | ✓ 4 tools | ✓ 5 tools  | ✓ 2 tools (rename + safe delete) |
-| Android Studio | ✓ 4 tools | ✓ 5 tools  | ✓ 2 tools (rename + safe delete) |
-| PyCharm        | ✓ 4 tools | ✓ 5 tools  | ✓ 1 tool (rename)                |
-| WebStorm       | ✓ 4 tools | ✓ 5 tools  | ✓ 1 tool (rename)                |
-| GoLand         | ✓ 4 tools | ✓ 5 tools  | ✓ 1 tool (rename)                |
-| RustRover      | ✓ 4 tools | ✓ 5 tools  | ✓ 1 tool (rename)                |
-| PhpStorm       | ✓ 4 tools | -          | ✓ 1 tool (rename)                |
+| IDE | Universal | Navigation | Refactoring |
+|-----|-----------|------------|-------------|
+| IntelliJ IDEA | ✓ 14 tools | ✓ 6 tools | ✓ rename + reformat + safe delete |
+| Android Studio | ✓ 14 tools | ✓ 6 tools | ✓ rename + reformat + safe delete |
+| PyCharm | ✓ 14 tools | ✓ 6 tools | ✓ rename + reformat |
+| WebStorm | ✓ 14 tools | ✓ 6 tools | ✓ rename + reformat |
+| GoLand | ✓ 14 tools | ✓ 4 tools | ✓ rename + reformat |
+| RustRover | ✓ 14 tools | ✓ 4 tools | ✓ rename + reformat |
+| PhpStorm | ✓ 14 tools | ✓ 5 tools | ✓ rename + reformat |
 
 **May Work (Untested):**
 
-| IDE      | Universal | Navigation | Refactoring       |
-| -------- | --------- | ---------- | ----------------- |
-| RubyMine | ✓ 4 tools | -          | ✓ 1 tool (rename) |
-| CLion    | ✓ 4 tools | -          | ✓ 1 tool (rename) |
-| DataGrip | ✓ 4 tools | -          | ✓ 1 tool (rename) |
+| IDE | Universal | Navigation | Refactoring |
+|-----|-----------|------------|-------------|
+| RubyMine | ✓ 14 tools | - | ✓ rename + reformat |
+| CLion | ✓ 14 tools | - | ✓ rename + reformat |
+| DataGrip | ✓ 14 tools | - | ✓ rename + reformat |
 
-> **Note**: Navigation tools (type hierarchy, call hierarchy, find implementations, symbol search, find super methods) are available when language plugins are present. The rename tool works across all languages.
+> **Note**: Navigation tools activate when language plugins are present. GoLand and RustRover have 4 navigation tools (no `ide_find_implementations` or `ide_find_super_methods` due to language semantics). PhpStorm has 5 (no `ide_file_structure`). The rename and reformat tools work across all languages.
 
 For detailed tool documentation with parameters and examples, see [USAGE.md](USAGE.md).
 
@@ -347,17 +364,19 @@ The plugin adds an "Index MCP Server" tool window (bottom panel) that shows:
 
 Configure the plugin at <kbd>Settings</kbd> > <kbd>Tools</kbd> > <kbd>Index MCP Server</kbd>:
 
-| Setting               | Default      | Description                                                                                                      |
-| --------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------- |
-| Server Port           | IDE-specific | MCP server port (range: 1024-65535, auto-restart on change). See [IDE-Specific Defaults](#ide-specific-defaults) |
-| Max History Size      | 100          | Maximum number of commands to keep in history                                                                    |
-| Sync External Changes | false        | Sync external file changes before operations                                                                     |
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Server Port | IDE-specific | MCP server port (range: 1024-65535, auto-restart on change). See [IDE-Specific Defaults](#ide-specific-defaults) |
+| Server Host | `127.0.0.1` | Listening host. Change to `0.0.0.0` for remote/WSL access |
+| Max History Size | 100 | Maximum number of commands to keep in history |
+| Sync External Changes | false | Sync external file changes before operations (**WARNING: significant performance impact**) |
+| Disabled Tools | 7 tools | Per-tool enable/disable toggles. Some tools are disabled by default to keep the tool list focused |
 
 ## Requirements
 
 - **JetBrains IDE** 2025.1 or later (any IDE based on IntelliJ Platform)
 - **JVM** 21 or later
-- **MCP Protocol** 2024-11-05
+- **MCP Protocol** 2025-03-26 (primary Streamable HTTP), with 2024-11-05 legacy SSE compatibility
 
 ### Supported IDEs
 
@@ -381,7 +400,18 @@ Configure the plugin at <kbd>Settings</kbd> > <kbd>Tools</kbd> > <kbd>Index MCP 
 
 The plugin runs a **custom embedded Ktor CIO HTTP server** with **dual MCP transports**:
 
-### SSE Transport (MCP Inspector, spec-compliant clients)
+### Streamable HTTP Transport (Primary, MCP 2025-03-26)
+
+```
+AI Assistant ──────► POST /index-mcp/streamable-http (initialize)
+                     ◄── HTTP 200 + Mcp-Session-Id
+             ──────► POST /index-mcp/streamable-http (requests/notifications)
+                     ◄── JSON-RPC response or HTTP 202 Accepted
+             ──────► DELETE /index-mcp/streamable-http
+                     ◄── HTTP 200                    (session terminated)
+```
+
+### Legacy SSE Transport (MCP Inspector, older clients)
 
 ```
 AI Assistant ──────► GET /index-mcp/sse              (establish SSE stream)
@@ -391,17 +421,10 @@ AI Assistant ──────► GET /index-mcp/sse              (establish SS
                      ◄── event: message              (JSON-RPC response via SSE)
 ```
 
-### Streamable HTTP Transport (Claude Code, simple clients)
-
-```
-AI Assistant ──────► POST /index-mcp                 (JSON-RPC requests)
-                     ◄── JSON-RPC response           (immediate HTTP response)
-```
-
 This dual approach:
-- **MCP Inspector compatible** - Full SSE transport per MCP spec (2024-11-05)
-- **Claude Code compatible** - Streamable HTTP for simple request/response
-- **Configurable port** - Default 29277, changeable in settings
+- **Primary MCP transport** - Streamable HTTP per MCP `2025-03-26`
+- **MCP Inspector compatible** - Legacy SSE transport per MCP `2024-11-05`
+- **Configurable port** - IDE-specific default port, changeable in settings
 - Works with any MCP-compatible client
 - Single server instance across all open projects
 

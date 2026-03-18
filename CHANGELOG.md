@@ -4,6 +4,43 @@
 
 ## [Unreleased]
 
+## [4.3.0] - 2026-03-17
+### Added
+- **`ide_optimize_imports` tool** — Optimize imports in a file without reformatting code. Removes unused imports and organizes remaining imports according to project code style. Equivalent to the IDE's "Optimize Imports" action (Ctrl+Alt+O / ⌘⌥O). Disabled by default — enable in Settings → Tools → Index MCP Server. ([#94](https://github.com/hechtcarmel/jetbrains-index-mcp-plugin/issues/94))
+
+## [4.2.0] - 2026-03-13
+### Added
+- **Companion Skill** — New "Get Companion Skill" button in the tool window toolbar. Lets users install or export a companion skill that guides AI coding agents on when and how to use IDE MCP tools effectively. Supports direct installation to `.claude/skills/` for Claude Code projects, or export as `.skill`/`.zip` file for sharing.
+
+## [4.1.0] - 2026-03-13
+### Added
+- **`ide_build_project` tool** — Trigger project builds via the IDE's build system (JPS, Gradle, Maven). Returns structured error/warning messages with file locations. Supports workspace sub-projects, trusted-project security gate, optional timeout, and optional raw build output. Disabled by default — enable in Settings → Tools → Index MCP Server.
+- **Plugin description updates** - Aligned with missing tools and features.
+
+## [4.0.2] - 2026-03-13
+### Changed
+- **Refactored path resolution in `PsiUtils`** — Extracted `resolveLocalFile`, `resolveAbsolutePath`, `resolveAbsolutePathString`, `expandHome`, and `toPathOrNull` as reusable helpers, eliminating duplicated path normalization logic
+
+### Fixed
+- **Integration test used real filesystem** — `ToolExecutionIntegrationTest` now uses `myFixture.addFileToProject()` so test files are properly indexed by the in-memory VFS
+- **Path comparison failed on Windows** — `PsiUtilsTest` now normalizes path separators and casing before comparing, fixing test failures on Windows
+
+## [4.0.1] - 2026-03-12
+
+### Fixed
+- **Fixed exception introduced in 4.0.0 that could occur when `ide_sync_files` was used after external file changes**
+- **Fixed contructor param renaming forcing modal popup**
+
+## [4.0.0] - 2026-03-11
+
+### Added
+- **Primary transport changed** — Default server URL now points to Streamable HTTP endpoint (`/index-mcp/streamable-http`). Existing client configurations using the SSE URL continue to work but should be updated.
+
+## [3.14.0] - 2026-03-11
+
+### Added
+- **Configurable server host** — Allows the user to configure the listening server host, making it possible to use the MCP server on another machine or WSL (Windows Subsystem for Linux).
+
 ## [3.13.0] - 2026-03-03
 
 ### Added

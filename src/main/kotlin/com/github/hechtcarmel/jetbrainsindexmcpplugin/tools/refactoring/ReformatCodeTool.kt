@@ -18,8 +18,6 @@ import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
@@ -114,13 +112,20 @@ class ReformatCodeTool : AbstractMcpTool() {
         // ═══════════════════════════════════════════════════════════════════════
         var errorMessage: String? = null
 
-        withContext(Dispatchers.EDT) {
+        edtAction {
             try {
                 executeReformat(project, psiFile, textRange, optimizeImports, rearrangeCode)
             } catch (e: Exception) {
                 LOG.warn("Reformat failed for $file", e)
                 errorMessage = e.message ?: "Unknown error during reformat"
             }
+        }
+
+        // Commit and save outside EDT block — commitDocuments uses
+        // TransactionGuard.submitTransactionAndWait for write-safe context
+        if (errorMessage == null) {
+            commitDocuments(project)
+            edtAction { FileDocumentManager.getInstance().saveAllDocuments() }
         }
 
         return if (errorMessage != null) {
@@ -190,8 +195,11 @@ class ReformatCodeTool : AbstractMcpTool() {
      * Executes the reformat operation using IntelliJ's processor chaining.
      * Must run on EDT.
      *
-     * Note: [ReformatCodeProcessor.run] internally handles [WriteCommandAction],
-     * so explicit wrapping is unnecessary. Undo (Ctrl+Z) works automatically.
+     * Uses [AbstractLayoutCodeProcessor.runWithoutProgress] instead of
+     * [AbstractLayoutCodeProcessor.run] because `run()` dispatches via `ProgressManager`
+     * as a background task in non-headless mode, returning before processing completes.
+     * `runWithoutProgress()` executes synchronously, ensuring the document is fully
+     * updated before we commit and save. Undo (Ctrl+Z) works automatically.
      */
     private fun executeReformat(
         project: Project,
@@ -213,9 +221,6 @@ class ReformatCodeTool : AbstractMcpTool() {
             processor = RearrangeCodeProcessor(processor)
         }
 
-        processor.run()
-
-        PsiDocumentManager.getInstance(project).commitAllDocuments()
-        FileDocumentManager.getInstance().saveAllDocuments()
+        processor.runWithoutProgress()
     }
 }

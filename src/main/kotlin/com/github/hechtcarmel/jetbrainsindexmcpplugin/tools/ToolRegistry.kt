@@ -15,8 +15,10 @@ import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.navigation.FindFileT
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.navigation.FindUsagesTool
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.navigation.ReadFileTool
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.navigation.SearchTextTool
+import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.project.BuildProjectTool
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.project.GetIndexStatusTool
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.project.SyncFilesTool
+import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.refactoring.OptimizeImportsTool
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.refactoring.ReformatCodeTool
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.refactoring.RenameSymbolTool
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.refactoring.SafeDeleteTool
@@ -44,6 +46,7 @@ import java.util.concurrent.ConcurrentHashMap
  * - `ide_find_file` - File search using FILE_EP_NAME index
  * - `ide_search_text` - Text search using word index
  * - `ide_diagnostics` - Analyze code for problems and available intentions
+ * - `ide_build_project` - Build project using IDE's build system (disabled by default)
  * - `ide_index_status` - Check indexing status
  * - `ide_get_active_file` - Get the currently active file(s) in the editor (disabled by default)
  * - `ide_open_file` - Open a file in the editor (disabled by default)
@@ -63,6 +66,7 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * - `ide_refactor_rename` - Rename symbol (works across ALL languages via RenameProcessor)
  * - `ide_reformat_code` - Reformat code using project code style (disabled by default)
+ * - `ide_optimize_imports` - Optimize imports without reformatting (disabled by default)
  *
  * ### Java-Specific Refactoring Tools (IntelliJ IDEA & Android Studio Only)
  *
@@ -223,10 +227,12 @@ class ToolRegistry {
         // Project tools
         register(GetIndexStatusTool())
         register(SyncFilesTool())
+        register(BuildProjectTool())
 
         // Refactoring tools (universal - uses platform RenameProcessor)
         register(RenameSymbolTool())
         register(ReformatCodeTool())
+        register(OptimizeImportsTool())
 
         // Fast search tools (universal)
         register(FindClassTool())
