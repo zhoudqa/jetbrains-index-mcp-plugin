@@ -4,6 +4,22 @@
 
 ## [Unreleased]
 
+## [4.6.0] - 2026-03-21
+### Added
+- **`ide_refactor_rename`: `relatedRenamingStrategy` parameter** — Controls automatic renaming of related symbols (same-named properties on unrelated classes, getters/setters, test classes, variables). Options: `"all"` (default, current behavior), `"none"` (rename only the targeted symbol), `"accessors_and_tests"` (only rename getters/setters and test classes/methods), `"ask"` (show IDE dialog for interactive choice). Fixes [#101](https://github.com/hechtcarmel/jetbrains-index-mcp-plugin/issues/101).
+
+## [4.5.0] - 2026-03-21
+### Added
+- **`ide_move_file` tool** — Move files to a new directory using the IDE's refactoring engine. Enabled by default.
+
+## [4.4.1] - 2026-03-19
+### Fixed
+- **2026.1 compatability issues** 
+
+## [4.4.0] - 2026-03-18
+### Added
+- **`ide_convert_java_to_kotlin` tool** — Convert Java files to Kotlin using IntelliJ's built-in J2K (Java-to-Kotlin) converter. Supports full file conversion with automatic formatting, import optimization, and code cleanup. Handles classes, interfaces, enums, methods, fields, generics, and Java 8+ features (lambdas, streams, method references). Returns list of created .kt files with line counts and any conversion warnings. Original Java files are automatically deleted after successful conversion. Requires both Java and Kotlin plugins. Disabled by default — enable in Settings → Tools → Index MCP Server.
+
 ## [4.3.0] - 2026-03-17
 ### Added
 - **`ide_optimize_imports` tool** — Optimize imports in a file without reformatting code. Removes unused imports and organizes remaining imports according to project code style. Equivalent to the IDE's "Optimize Imports" action (Ctrl+Alt+O / ⌘⌥O). Disabled by default — enable in Settings → Tools → Index MCP Server. ([#94](https://github.com/hechtcarmel/jetbrains-index-mcp-plugin/issues/94))
