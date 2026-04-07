@@ -364,17 +364,17 @@ Tests are split into two categories to optimize execution time:
 Tools are organized by IDE availability.
 
 **Universal Tools (All JetBrains IDEs):**
-- `ide_find_references` - Find all usages of a symbol
-- `ide_find_definition` - Find symbol definition location
+- `ide_find_references` - Find all usages of a symbol. Supports `language`+`symbol` as alternative to `file`+`line`+`column`.
+- `ide_find_definition` - Find symbol definition location. Supports `language`+`symbol` as alternative to `file`+`line`+`column`.
 - `ide_find_class` - Search for classes/interfaces by name with camelCase/substring/wildcard matching
 - `ide_find_file` - Search for files by name using IDE's file index
 - `ide_search_text` - Text search using IDE's pre-built word index with context filtering
 - `ide_read_file` - Read file content by path or qualified name, including library/jar sources (disabled by default)
-- `ide_diagnostics` - Analyze file for problems and available intentions
+- `ide_diagnostics` - Unified diagnostics tool: per-file code analysis (errors, warnings, intentions), build output from last build, and test results from open test run tabs. Supports `includeBuildErrors`, `includeTestResults`, `severity` filter, `testResultFilter`, `maxBuildErrors`, `maxTestResults`. The `file` parameter is now optional.
 - `ide_index_status` - Check indexing status (dumb/smart mode)
 - `ide_sync_files` - Force sync IDE's virtual file system and PSI cache with external file changes
 - `ide_build_project` - Build project using IDE's build system (JPS, Gradle, Maven). Returns structured errors/warnings with file locations when available (null counts = no messages captured, not 0). Uses CompilationStatusListener for JPS builds and BuildProgressListener for Gradle/Maven builds. Supports workspace sub-project targeting via `project_path`. (disabled by default)
-- `ide_refactor_rename` - Rename a symbol across the project with automatic related element renaming (getters/setters, overriding methods). Fully headless, works for ALL languages. Supports `relatedRenamingStrategy` parameter to control automatic related renames: `"all"` (default), `"none"`, `"accessors_and_tests"`, or `"ask"`.
+- `ide_refactor_rename` - Rename a symbol or file across the project with automatic related element renaming (getters/setters, overriding methods). Fully headless, works for ALL languages. Two modes: **symbol rename** (file + line + column + newName) and **file rename** (file + newName, omit line/column). File rename mode works for all file types including binary files (images, etc.) and is especially useful for Android resource files where it updates all XML references. Supports `relatedRenamingStrategy` parameter to control automatic related renames: `"all"` (default), `"none"`, `"accessors_and_tests"`, or `"ask"`.
 - `ide_move_file` - Move a file to a new directory using the IDE's refactoring engine. Automatically updates all references, imports, and package declarations across the project. Supports automatic directory creation and optional reference update toggle.
 - `ide_reformat_code` - Reformat code using project code style (.editorconfig, IDE settings). Supports optional import optimization and code rearrangement. (disabled by default)
 - `ide_optimize_imports` - Optimize imports (remove unused, organize) without reformatting code. Equivalent to IDE's Ctrl+Alt+O. (disabled by default)
@@ -385,10 +385,10 @@ Tools are organized by IDE availability.
 
 These activate based on available language plugins (Java, Python, JavaScript/TypeScript, Go, PHP, Rust):
 - `ide_type_hierarchy` - Get type hierarchy for a class (Java, Kotlin, Python, JS/TS, Go, PHP, Rust)
-- `ide_call_hierarchy` - Get call hierarchy for a method (Java, Kotlin, Python, JS/TS, Go, PHP, Rust)
-- `ide_find_implementations` - Find implementations of interface/method (Java, Kotlin, Python, JS/TS, PHP, Rust — not Go)
+- `ide_call_hierarchy` - Get call hierarchy for a method (Java, Kotlin, Python, JS/TS, Go, PHP, Rust). Supports `language`+`symbol` as alternative to `file`+`line`+`column`.
+- `ide_find_implementations` - Find implementations of interface/method (Java, Kotlin, Python, JS/TS, PHP, Rust — not Go). Supports `language`+`symbol` as alternative to `file`+`line`+`column`.
 - `ide_find_symbol` - Search for symbols (classes, methods, fields) by name with fuzzy/camelCase matching (disabled by default)
-- `ide_find_super_methods` - Find methods that a given method overrides/implements (Java, Kotlin, Python, JS/TS, PHP — not Go, Rust)
+- `ide_find_super_methods` - Find methods that a given method overrides/implements (Java, Kotlin, Python, JS/TS, PHP — not Go, Rust). Supports `language`+`symbol` as alternative to `file`+`line`+`column`.
 - `ide_file_structure` - Get hierarchical file structure similar to IDE's Structure view (Java, Kotlin, Python, JS/TS) (disabled by default)
 
 **Java/Kotlin-Only Refactoring Tools:**
@@ -419,6 +419,7 @@ The plugin uses a language handler pattern for multi-IDE support:
 - `ImplementationsHandler` - Find implementations
 - `CallHierarchyHandler` - Call hierarchy analysis
 - `SymbolSearchHandler` - Symbol search by name
+- `SymbolReferenceHandler` - Resolve fully qualified symbol references (e.g., `com.example.MyClass#method(String)`) to PSI elements
 - `SuperMethodsHandler` - Method override hierarchy
 
 **Registration Flow:**
@@ -435,6 +436,34 @@ Symbol search across all languages uses `OptimizedSymbolSearch` (in `handlers/Op
 - Leverages IntelliJ's "Go to Symbol" APIs (`ChooseByNameContributor`)
 - Uses `MinusculeMatcher` for CamelCase, substring, and typo-tolerant matching
 - Supports language filtering (e.g., `languageFilter = setOf("Java", "Kotlin")`)
+
+### Pagination
+
+The plugin supports cursor-based pagination for search tools that return flat result lists:
+`ide_find_references`, `ide_search_text`, `ide_find_class`, `ide_find_file`, `ide_find_symbol`, `ide_find_implementations`.
+
+**Key components:**
+- `PaginationService` (`server/PaginationService.kt`): Application-level light service managing cursor cache
+- Cursor tokens are opaque, immutable, base64url-encoded strings containing `{entryId}:{offset}:{pageSize}`
+- Same cursor token always returns the same page (idempotent, safe for retries)
+- Each response includes `nextCursor` for the next page
+
+**Cache lifecycle:**
+- Over-collection: tools collect 500 results internally, serve in configurable page sizes (default varies per tool)
+- Inactivity-based TTL: 10 minutes of idle time before cursor expires
+- LRU eviction: max 20 active cursors
+- Max 5,000 cached results per cursor; beyond this, `hasMore` returns false
+- Staleness detection via `PsiModificationTracker` — `stale: true` in response if PSI changed
+
+**Tool integration pattern:**
+1. Check for `cursor` parameter → serve from cache via `getPageFromCache()`
+2. Fresh search → collect results, create cursor via `PaginationService.createCursor()`, serve first page
+3. `searchExtender` lambda enables lazy cache extension when pages are exhausted
+4. Each tool has a `buildPaginatedResult()` helper mapping `GetPageResult` to its own result model
+
+**Schema:** All parameters are optional in the schema (no `required` array) because the Anthropic API does not support `anyOf`/`oneOf` at the top level. Validation is done at runtime — if `cursor` is absent, the tool checks for its required search params and returns an error if missing.
+
+**Backward compatibility:** Old `limit`/`maxResults` parameters work as aliases for `pageSize`. Legacy cursors (without embedded pageSize) are still decodable but require an explicit `pageSize` parameter.
 
 ### Search Collection Pattern (Processor)
 

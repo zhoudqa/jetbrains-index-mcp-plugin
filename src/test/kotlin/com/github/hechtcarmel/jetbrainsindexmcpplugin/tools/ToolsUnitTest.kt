@@ -25,13 +25,32 @@ import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.refactoring.Optimize
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.refactoring.ReformatCodeTool
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.refactoring.RenameSymbolTool
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.refactoring.SafeDeleteTool
+import com.github.hechtcarmel.jetbrainsindexmcpplugin.handlers.LanguageHandlerRegistry
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.handlers.isExcludedPath
+import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.schema.SchemaBuilder
+import io.mockk.every
+import io.mockk.mockkObject
+import io.mockk.unmockkObject
 import junit.framework.TestCase
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 class ToolsUnitTest : TestCase() {
+
+    override fun setUp() {
+        super.setUp()
+        mockkObject(LanguageHandlerRegistry)
+        every { LanguageHandlerRegistry.getSupportedLanguageNamesForSymbolReference() } returns listOf("Java", "Kotlin")
+    }
+
+    override fun tearDown() {
+        try {
+            unmockkObject(LanguageHandlerRegistry)
+        } finally {
+            super.tearDown()
+        }
+    }
 
     fun testGetIndexStatusToolSchema() {
         val tool = GetIndexStatusTool()
@@ -113,9 +132,13 @@ class ToolsUnitTest : TestCase() {
         assertNotNull("Should have file property", properties?.get(ParamNames.FILE))
         assertNotNull("Should have line property", properties?.get(ParamNames.LINE))
         assertNotNull("Should have column property", properties?.get(ParamNames.COLUMN))
+        assertNotNull("Should have language property", properties?.get(ParamNames.LANGUAGE))
+        assertNotNull("Should have symbol property", properties?.get(ParamNames.SYMBOL))
+        assertNotNull("Should have cursor property", properties?.get("cursor"))
+        assertNotNull("Should have pageSize property", properties?.get("pageSize"))
 
-        val required = schema[SchemaConstants.REQUIRED]
-        assertNotNull("Should have required array", required)
+        assertNull("Should not have anyOf (incompatible with Anthropic API)", schema["anyOf"])
+        assertNull("Should not have required array (all params optional for pagination)", schema[SchemaConstants.REQUIRED])
     }
 
     fun testFindDefinitionToolSchema() {
@@ -134,6 +157,10 @@ class ToolsUnitTest : TestCase() {
         assertNotNull("Should have file property", properties?.get(ParamNames.FILE))
         assertNotNull("Should have line property", properties?.get(ParamNames.LINE))
         assertNotNull("Should have column property", properties?.get(ParamNames.COLUMN))
+        assertNotNull("Should have language property", properties?.get(ParamNames.LANGUAGE))
+        assertNotNull("Should have symbol property", properties?.get(ParamNames.SYMBOL))
+
+        assertNull("Should not have required array", schema[SchemaConstants.REQUIRED])
     }
 
     fun testTypeHierarchyToolSchema() {
@@ -168,6 +195,8 @@ class ToolsUnitTest : TestCase() {
         assertNotNull(properties)
 
         assertNotNull("Should have direction property", properties?.get(ParamNames.DIRECTION))
+        assertNotNull("Should have language property", properties?.get(ParamNames.LANGUAGE))
+        assertNotNull("Should have symbol property", properties?.get(ParamNames.SYMBOL))
     }
 
     fun testFindImplementationsToolSchema() {
@@ -185,6 +214,13 @@ class ToolsUnitTest : TestCase() {
         assertNotNull("Should have file property", properties?.get(ParamNames.FILE))
         assertNotNull("Should have line property", properties?.get(ParamNames.LINE))
         assertNotNull("Should have column property", properties?.get(ParamNames.COLUMN))
+        assertNotNull("Should have language property", properties?.get(ParamNames.LANGUAGE))
+        assertNotNull("Should have symbol property", properties?.get(ParamNames.SYMBOL))
+        assertNotNull("Should have cursor property", properties?.get("cursor"))
+        assertNotNull("Should have pageSize property", properties?.get("pageSize"))
+
+        assertNull("Should not have anyOf (incompatible with Anthropic API)", schema["anyOf"])
+        assertNull("Should not have required array (all params optional for pagination)", schema[SchemaConstants.REQUIRED])
     }
 
     fun testGetDiagnosticsToolSchema() {
@@ -199,9 +235,45 @@ class ToolsUnitTest : TestCase() {
         val properties = schema[SchemaConstants.PROPERTIES]?.jsonObject
         assertNotNull(properties)
 
-        assertNotNull("Should have file property", properties?.get(ParamNames.FILE))
-        assertNotNull("Should have startLine property", properties?.get(ParamNames.START_LINE))
-        assertNotNull("Should have endLine property", properties?.get(ParamNames.END_LINE))
+        // Existing params
+        assertNotNull("Should have project_path", properties?.get(ParamNames.PROJECT_PATH))
+        assertNotNull("Should have file", properties?.get(ParamNames.FILE))
+        assertNotNull("Should have line", properties?.get("line"))
+        assertNotNull("Should have column", properties?.get("column"))
+        assertNotNull("Should have startLine", properties?.get("startLine"))
+        assertNotNull("Should have endLine", properties?.get("endLine"))
+
+        // New params
+        assertNotNull("Should have includeBuildErrors", properties?.get(ParamNames.INCLUDE_BUILD_ERRORS))
+        assertNotNull("Should have includeTestResults", properties?.get(ParamNames.INCLUDE_TEST_RESULTS))
+        assertNotNull("Should have severity", properties?.get(ParamNames.SEVERITY))
+        assertNotNull("Should have testResultFilter", properties?.get(ParamNames.TEST_RESULT_FILTER))
+        assertNotNull("Should have maxBuildErrors", properties?.get(ParamNames.MAX_BUILD_ERRORS))
+        assertNotNull("Should have maxTestResults", properties?.get(ParamNames.MAX_TEST_RESULTS))
+
+        // file should NOT be required anymore
+        val required = schema[SchemaConstants.REQUIRED]?.jsonArray?.map { it.jsonPrimitive.content }
+        assertTrue("file should not be required", required == null || !required.contains(ParamNames.FILE))
+    }
+
+    fun testGetDiagnosticsToolSeverityEnum() {
+        val tool = GetDiagnosticsTool()
+        val properties = tool.inputSchema[SchemaConstants.PROPERTIES]?.jsonObject
+        val severityProp = properties?.get(ParamNames.SEVERITY)?.jsonObject
+
+        val enumValues = severityProp?.get("enum")?.jsonArray?.map { it.jsonPrimitive.content }
+        assertNotNull("severity should have enum values", enumValues)
+        assertEquals(listOf("all", "errors", "warnings"), enumValues)
+    }
+
+    fun testGetDiagnosticsToolTestResultFilterEnum() {
+        val tool = GetDiagnosticsTool()
+        val properties = tool.inputSchema[SchemaConstants.PROPERTIES]?.jsonObject
+        val filterProp = properties?.get(ParamNames.TEST_RESULT_FILTER)?.jsonObject
+
+        val enumValues = filterProp?.get("enum")?.jsonArray?.map { it.jsonPrimitive.content }
+        assertNotNull("testResultFilter should have enum values", enumValues)
+        assertEquals(listOf("failed", "all"), enumValues)
     }
 
     /**
@@ -328,6 +400,13 @@ class ToolsUnitTest : TestCase() {
         assertNotNull("Should have newName property", properties?.get(ParamNames.NEW_NAME))
         assertNotNull("Should have relatedRenamingStrategy property", properties?.get("relatedRenamingStrategy"))
 
+        // line and column should be optional (not in required) to support file rename mode
+        val required = schema[SchemaConstants.REQUIRED]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList()
+        assertTrue("file should be required", required.contains(ParamNames.FILE))
+        assertTrue("newName should be required", required.contains(ParamNames.NEW_NAME))
+        assertFalse("line should NOT be required (optional for file rename)", required.contains(ParamNames.LINE))
+        assertFalse("column should NOT be required (optional for file rename)", required.contains(ParamNames.COLUMN))
+
         // Verify relatedRenamingStrategy has enum values
         val relatedStrategyProp = properties?.get("relatedRenamingStrategy")?.jsonObject
         assertNotNull("relatedRenamingStrategy should have enum", relatedStrategyProp?.get("enum"))
@@ -400,9 +479,11 @@ class ToolsUnitTest : TestCase() {
         assertNotNull("Should have query property", properties?.get(ParamNames.QUERY))
         assertNotNull("Should have includeLibraries property", properties?.get(ParamNames.INCLUDE_LIBRARIES))
         assertNotNull("Should have limit property", properties?.get(ParamNames.LIMIT))
+        assertNotNull("Should have cursor property", properties?.get("cursor"))
+        assertNotNull("Should have pageSize property", properties?.get("pageSize"))
 
-        val required = schema[SchemaConstants.REQUIRED]
-        assertNotNull("Should have required array", required)
+        assertNull("Should not have anyOf (incompatible with Anthropic API)", schema["anyOf"])
+        assertNull("Should not have required array (all params optional for pagination)", schema[SchemaConstants.REQUIRED])
     }
 
     fun testFindSuperMethodsToolSchema() {
@@ -421,9 +502,10 @@ class ToolsUnitTest : TestCase() {
         assertNotNull("Should have file property", properties?.get(ParamNames.FILE))
         assertNotNull("Should have line property", properties?.get(ParamNames.LINE))
         assertNotNull("Should have column property", properties?.get(ParamNames.COLUMN))
+        assertNotNull("Should have language property", properties?.get(ParamNames.LANGUAGE))
+        assertNotNull("Should have symbol property", properties?.get(ParamNames.SYMBOL))
 
-        val required = schema[SchemaConstants.REQUIRED]
-        assertNotNull("Should have required array", required)
+        assertNull("Should not have required array", schema[SchemaConstants.REQUIRED])
     }
 
     fun testReformatCodeToolSchema() {
@@ -552,9 +634,11 @@ class ToolsUnitTest : TestCase() {
         assertNotNull("Should have query property", properties?.get(ParamNames.QUERY))
         assertNotNull("Should have includeLibraries property", properties?.get(ParamNames.INCLUDE_LIBRARIES))
         assertNotNull("Should have limit property", properties?.get(ParamNames.LIMIT))
+        assertNotNull("Should have cursor property", properties?.get("cursor"))
+        assertNotNull("Should have pageSize property", properties?.get("pageSize"))
 
-        val required = schema[SchemaConstants.REQUIRED]
-        assertNotNull("Should have required array", required)
+        assertNull("Should not have anyOf (incompatible with Anthropic API)", schema["anyOf"])
+        assertNull("Should not have required array (all params optional for pagination)", schema[SchemaConstants.REQUIRED])
     }
 
     fun testFindFileToolSchema() {
@@ -573,9 +657,11 @@ class ToolsUnitTest : TestCase() {
         assertNotNull("Should have query property", properties?.get(ParamNames.QUERY))
         assertNotNull("Should have includeLibraries property", properties?.get(ParamNames.INCLUDE_LIBRARIES))
         assertNotNull("Should have limit property", properties?.get(ParamNames.LIMIT))
+        assertNotNull("Should have cursor property", properties?.get("cursor"))
+        assertNotNull("Should have pageSize property", properties?.get("pageSize"))
 
-        val required = schema[SchemaConstants.REQUIRED]
-        assertNotNull("Should have required array", required)
+        assertNull("Should not have anyOf (incompatible with Anthropic API)", schema["anyOf"])
+        assertNull("Should not have required array (all params optional for pagination)", schema[SchemaConstants.REQUIRED])
     }
 
     fun testSearchTextToolSchema() {
@@ -595,9 +681,11 @@ class ToolsUnitTest : TestCase() {
         assertNotNull("Should have context property", properties?.get(ParamNames.CONTEXT))
         assertNotNull("Should have caseSensitive property", properties?.get(ParamNames.CASE_SENSITIVE))
         assertNotNull("Should have limit property", properties?.get(ParamNames.LIMIT))
+        assertNotNull("Should have cursor property", properties?.get("cursor"))
+        assertNotNull("Should have pageSize property", properties?.get("pageSize"))
 
-        val required = schema[SchemaConstants.REQUIRED]
-        assertNotNull("Should have required array", required)
+        assertNull("Should not have anyOf (incompatible with Anthropic API)", schema["anyOf"])
+        assertNull("Should not have required array (all params optional for pagination)", schema[SchemaConstants.REQUIRED])
     }
 
     fun testGetActiveFileToolSchema() {
@@ -823,4 +911,5 @@ class ToolsUnitTest : TestCase() {
         assertFalse("nested build path should not match", isExcludedPath("src/build/notes.md"))
         assertFalse("root file should not be excluded",   isExcludedPath("README.md"))
     }
+
 }

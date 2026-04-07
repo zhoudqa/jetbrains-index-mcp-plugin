@@ -1,6 +1,12 @@
 package com.github.hechtcarmel.jetbrainsindexmcpplugin.tools
 
+import com.github.hechtcarmel.jetbrainsindexmcpplugin.constants.ErrorMessages
+import com.github.hechtcarmel.jetbrainsindexmcpplugin.constants.ParamNames
+import com.github.hechtcarmel.jetbrainsindexmcpplugin.constants.toArgumentFailure
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.exceptions.IndexNotReadyException
+import com.github.hechtcarmel.jetbrainsindexmcpplugin.handlers.LanguageHandlerRegistry
+import com.github.hechtcarmel.jetbrainsindexmcpplugin.server.PaginationService
+import com.github.hechtcarmel.jetbrainsindexmcpplugin.server.ProjectResolver
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.server.models.ContentBlock
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.server.models.ToolCallResult
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.settings.McpSettings
@@ -20,17 +26,23 @@ import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.LocalFileSystem
+import java.io.File
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
+import com.intellij.psi.util.PsiModificationTracker
+import com.intellij.util.concurrency.annotations.RequiresReadLock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * Abstract base class for MCP tools providing common functionality.
@@ -319,23 +331,35 @@ abstract class AbstractMcpTool : McpTool {
      * @return The VirtualFile, or null if not found
      */
     protected fun resolveFile(project: Project, relativePath: String): VirtualFile? {
-        // Absolute paths are resolved directly
+        // Absolute paths are validated against project roots before resolving
         if (relativePath.startsWith("/") || relativePath.startsWith("\\")) {
-            return LocalFileSystem.getInstance().refreshAndFindFileByPath(relativePath)
+            val canonical = File(relativePath).canonicalPath
+            val projectRoots = listOfNotNull(project.basePath) + ProjectUtils.getModuleContentRoots(project)
+            val withinProject = projectRoots.any { root ->
+                canonical.startsWith(File(root).canonicalPath + File.separator)
+            }
+            if (!withinProject) return null
+            return LocalFileSystem.getInstance().refreshAndFindFileByPath(canonical)
         }
 
         // Try project basePath first
         val basePath = project.basePath
         if (basePath != null) {
-            val file = LocalFileSystem.getInstance().refreshAndFindFileByPath("$basePath/$relativePath")
-            if (file != null) return file
+            val canonical = File(basePath, relativePath).canonicalPath
+            if (canonical.startsWith(File(basePath).canonicalPath + File.separator)) {
+                val file = LocalFileSystem.getInstance().refreshAndFindFileByPath(canonical)
+                if (file != null) return file
+            }
         }
 
         // Try module content roots (workspace sub-project support)
         for (rootPath in ProjectUtils.getModuleContentRoots(project)) {
             if (rootPath != basePath) {
-                val file = LocalFileSystem.getInstance().refreshAndFindFileByPath("$rootPath/$relativePath")
-                if (file != null) return file
+                val canonical = File(rootPath, relativePath).canonicalPath
+                if (canonical.startsWith(File(rootPath).canonicalPath + File.separator)) {
+                    val file = LocalFileSystem.getInstance().refreshAndFindFileByPath(canonical)
+                    if (file != null) return file
+                }
             }
         }
 
@@ -374,6 +398,62 @@ abstract class AbstractMcpTool : McpTool {
 
         val offset = getOffset(document, line, column) ?: return null
         return psiFile.findElementAt(offset)
+    }
+
+    /**
+     * Resolves a PSI element from arguments using either `language`+`symbol` or `file`+`line`+`column`.
+     *
+     * These two parameter groups are mutually exclusive.
+     *
+     * The symbol path always returns a [com.intellij.psi.PsiNamedElement] (the declaration);
+     * the position path returns a leaf token that callers must resolve further.
+     *
+     * @param project The project context
+     * @param arguments The tool arguments
+     * @return [Result.success] with the resolved element, or [Result.failure] with an [IllegalArgumentException]
+     */
+    @RequiresReadLock
+    protected fun resolveElementFromArguments(
+        project: Project,
+        arguments: JsonObject
+    ): Result<PsiElement> {
+        val language = arguments[ParamNames.LANGUAGE]?.jsonPrimitive?.content
+        val symbol = arguments[ParamNames.SYMBOL]?.jsonPrimitive?.content
+        val file = arguments[ParamNames.FILE]?.jsonPrimitive?.content
+        val line = arguments[ParamNames.LINE]?.jsonPrimitive?.int
+        val column = arguments[ParamNames.COLUMN]?.jsonPrimitive?.int
+
+        val hasSymbol = language != null || symbol != null
+        val hasPosition = file != null || line != null || column != null
+
+        if (hasSymbol && hasPosition) {
+            return ErrorMessages.SYMBOL_AND_POSITION_EXCLUSIVE.toArgumentFailure()
+        }
+
+        if (hasSymbol) {
+            if (language == null) return ErrorMessages.missingParamForSymbol(ParamNames.LANGUAGE).toArgumentFailure()
+            if (symbol == null) return ErrorMessages.missingParamForSymbol(ParamNames.SYMBOL).toArgumentFailure()
+
+            val handler = LanguageHandlerRegistry.getSymbolReferenceHandlerByLanguageName(language)
+                ?: return ErrorMessages.noSymbolReferenceHandler(
+                    language, LanguageHandlerRegistry.getSupportedLanguageNamesForSymbolReference()
+                ).toArgumentFailure()
+
+            return handler.resolveSymbol(project, symbol)
+        }
+
+        if (hasPosition) {
+            if (file == null) return ErrorMessages.missingParamForPosition(ParamNames.FILE, "line or column").toArgumentFailure()
+            if (line == null) return ErrorMessages.missingParamForPosition(ParamNames.LINE, "file or column").toArgumentFailure()
+            if (column == null) return ErrorMessages.missingParamForPosition(ParamNames.COLUMN, "file or line").toArgumentFailure()
+
+            val element = findPsiElement(project, file, line, column)
+                ?: return ErrorMessages.noElementAtPosition(file, line, column).toArgumentFailure()
+
+            return Result.success(element)
+        }
+
+        return ErrorMessages.SYMBOL_OR_POSITION_REQUIRED.toArgumentFailure()
     }
 
     /**
@@ -437,6 +517,72 @@ abstract class AbstractMcpTool : McpTool {
      */
     protected fun findClassByName(project: Project, qualifiedName: String): PsiElement? {
         return ClassResolver.findClassByName(project, qualifiedName)
+    }
+
+    /**
+     * Gets a page from the pagination cache.
+     * Extracts project basePath and PSI mod count, delegates to PaginationService.
+     * Returns GetPageResult — caller maps Success/Error into tool-specific ToolCallResult.
+     *
+     * @param pageSize Explicit pageSize from request, or null to use the cursor-embedded value.
+     */
+    protected suspend fun getPageFromCache(cursorToken: String, pageSize: Int?, project: Project): PaginationService.GetPageResult {
+        val service = ApplicationManager.getApplication().getService(PaginationService::class.java)
+        val basePath = ProjectResolver.normalizePath(project.basePath ?: "")
+        val modCount = PsiModificationTracker.getInstance(project).modificationCount
+        return service.getPage(cursorToken, pageSize, basePath, modCount)
+    }
+
+    /**
+     * Builds a paginated tool result from a GetPageResult.
+     * Handles error mapping and JSON deserialization of page items.
+     * @param T The item type to deserialize from JSON
+     * @param R The result model type to serialize (must be @Serializable)
+     * @param result The pagination result from getPageFromCache
+     * @param builder Constructs the tool-specific result model from deserialized items and page metadata
+     */
+    protected inline fun <reified T, reified R> buildPaginatedResult(
+        result: PaginationService.GetPageResult,
+        builder: (items: List<T>, page: PaginationService.PaginationPage) -> R
+    ): ToolCallResult {
+        return when (result) {
+            is PaginationService.GetPageResult.Error -> createErrorResult(result.message)
+            is PaginationService.GetPageResult.Success -> {
+                val items = result.page.items.map { json.decodeFromJsonElement<T>(it) }
+                createJsonResult(builder(items, result.page))
+            }
+        }
+    }
+
+    /**
+     * Resolves pageSize from arguments, checking pageSize first, then legacy aliases.
+     * Result is clamped to [1, maxPageSize].
+     */
+    protected fun resolvePageSize(
+        arguments: JsonObject,
+        defaultPageSize: Int,
+        maxPageSize: Int = PaginationService.MAX_PAGE_SIZE,
+        vararg aliases: String
+    ): Int {
+        val raw = arguments["pageSize"]?.jsonPrimitive?.int
+            ?: aliases.firstNotNullOfOrNull { arguments[it]?.jsonPrimitive?.int }
+            ?: defaultPageSize
+        return raw.coerceIn(1, maxPageSize)
+    }
+
+    /**
+     * Returns the explicitly provided pageSize from arguments, or null if not specified.
+     * Used in cursor paths so the cursor-embedded pageSize is used as fallback.
+     */
+    protected fun resolveExplicitPageSize(
+        arguments: JsonObject,
+        maxPageSize: Int = PaginationService.MAX_PAGE_SIZE,
+        vararg aliases: String
+    ): Int? {
+        val raw = arguments["pageSize"]?.jsonPrimitive?.int
+            ?: aliases.firstNotNullOfOrNull { arguments[it]?.jsonPrimitive?.int }
+            ?: return null
+        return raw.coerceIn(1, maxPageSize)
     }
 
     /**

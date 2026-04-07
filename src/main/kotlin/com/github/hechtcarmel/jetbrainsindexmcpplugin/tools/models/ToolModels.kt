@@ -16,14 +16,21 @@ data class UsageLocation(
     val line: Int,
     val column: Int,
     val context: String,
-    val type: String
+    val type: String,
+    val astPath: List<String>,
 )
 
 @Serializable
 data class FindUsagesResult(
     val usages: List<UsageLocation>,
     val totalCount: Int,
-    val truncated: Boolean = false
+    val truncated: Boolean = false,
+    val nextCursor: String? = null,
+    val hasMore: Boolean = false,
+    val totalCollected: Int = 0,
+    val offset: Int = 0,
+    val pageSize: Int = 0,
+    val stale: Boolean = false
 )
 
 // find_definition output
@@ -33,7 +40,8 @@ data class DefinitionResult(
     val line: Int,
     val column: Int,
     val preview: String,
-    val symbolName: String
+    val symbolName: String,
+    val astPath: List<String>
 )
 
 // ide_read_file output
@@ -87,7 +95,13 @@ data class CallElement(
 @Serializable
 data class ImplementationResult(
     val implementations: List<ImplementationLocation>,
-    val totalCount: Int
+    val totalCount: Int,
+    val nextCursor: String? = null,
+    val hasMore: Boolean = false,
+    val totalCollected: Int = 0,
+    val offset: Int = 0,
+    val pageSize: Int = 0,
+    val stale: Boolean = false
 )
 
 @Serializable
@@ -104,10 +118,18 @@ data class ImplementationLocation(
 // ide_diagnostics output
 @Serializable
 data class DiagnosticsResult(
-    val problems: List<ProblemInfo>,
-    val intentions: List<IntentionInfo>,
-    val problemCount: Int,
-    val intentionCount: Int
+    val problems: List<ProblemInfo>? = null,
+    val intentions: List<IntentionInfo>? = null,
+    val problemCount: Int? = null,
+    val intentionCount: Int? = null,
+    val buildErrors: List<BuildMessage>? = null,
+    val buildErrorCount: Int? = null,
+    val buildWarningCount: Int? = null,
+    val buildErrorsTruncated: Boolean? = null,
+    val buildTimestamp: Long? = null,
+    val testResults: List<TestResultInfo>? = null,
+    val testSummary: TestSummary? = null,
+    val testResultsTruncated: Boolean? = null
 )
 
 @Serializable
@@ -125,6 +147,28 @@ data class ProblemInfo(
 data class IntentionInfo(
     val name: String,
     val description: String?
+)
+
+// ide_diagnostics test results output
+@Serializable
+data class TestResultInfo(
+    val name: String,
+    val suite: String?,
+    val status: String,
+    val durationMs: Long?,
+    val errorMessage: String?,
+    val stacktrace: String?,
+    val file: String?,
+    val line: Int?
+)
+
+@Serializable
+data class TestSummary(
+    val total: Int,
+    val passed: Int,
+    val failed: Int,
+    val ignored: Int,
+    val runConfigName: String?
 )
 
 // Refactoring result
@@ -180,7 +224,13 @@ data class BuildProjectResult(
 data class FindSymbolResult(
     val symbols: List<SymbolMatch>,
     val totalCount: Int,
-    val query: String
+    val query: String,
+    val nextCursor: String? = null,
+    val hasMore: Boolean = false,
+    val totalCollected: Int = 0,
+    val offset: Int = 0,
+    val pageSize: Int = 0,
+    val stale: Boolean = false
 )
 
 @Serializable
@@ -233,7 +283,13 @@ data class SuperMethodInfo(
 data class FindClassResult(
     val classes: List<SymbolMatch>,
     val totalCount: Int,
-    val query: String
+    val query: String,
+    val nextCursor: String? = null,
+    val hasMore: Boolean = false,
+    val totalCollected: Int = 0,
+    val offset: Int = 0,
+    val pageSize: Int = 0,
+    val stale: Boolean = false
 )
 
 // ide_find_file output
@@ -241,7 +297,13 @@ data class FindClassResult(
 data class FindFileResult(
     val files: List<FileMatch>,
     val totalCount: Int,
-    val query: String
+    val query: String,
+    val nextCursor: String? = null,
+    val hasMore: Boolean = false,
+    val totalCollected: Int = 0,
+    val offset: Int = 0,
+    val pageSize: Int = 0,
+    val stale: Boolean = false
 )
 
 @Serializable
@@ -280,7 +342,13 @@ data class OpenFileResult(
 data class SearchTextResult(
     val matches: List<TextMatch>,
     val totalCount: Int,
-    val query: String
+    val query: String,
+    val nextCursor: String? = null,
+    val hasMore: Boolean = false,
+    val totalCollected: Int = 0,
+    val offset: Int = 0,
+    val pageSize: Int = 0,
+    val stale: Boolean = false
 )
 
 @Serializable
