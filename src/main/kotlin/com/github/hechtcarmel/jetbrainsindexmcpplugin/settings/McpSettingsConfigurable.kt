@@ -12,6 +12,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.options.ConfigurationException
+import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.ComponentValidator
 import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.openapi.util.Disposer
@@ -21,6 +22,7 @@ import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextField
 import com.intellij.ui.components.panels.HorizontalLayout
+import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.util.ui.AsyncProcessIcon
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
@@ -46,6 +48,8 @@ class McpSettingsConfigurable : Configurable {
     private var maxHistorySizeSpinner: JSpinner? = null
     private var serverPortSpinner: JSpinner? = null
     private var syncExternalChangesCheckBox: JBCheckBox? = null
+    private var availableProjectsModeComboBox: ComboBox<McpSettings.AvailableProjectsMode>? = null
+    private var responseFormatComboBox: ComboBox<McpSettings.ResponseFormat>? = null
     private val toolCheckBoxes = mutableMapOf<String, JBCheckBox>()
     private var uiDisposable: Disposable? = null
 
@@ -95,6 +99,18 @@ class McpSettingsConfigurable : Configurable {
         syncExternalChangesCheckBox = JBCheckBox(McpBundle.message("settings.syncExternalChanges")).apply {
             toolTipText = McpBundle.message("settings.syncExternalChanges.tooltip")
         }
+        availableProjectsModeComboBox = ComboBox(McpSettings.AvailableProjectsMode.values()).apply {
+            toolTipText = McpBundle.message("settings.availableProjectsMode.tooltip")
+            renderer = SimpleListCellRenderer.create("") { value ->
+                value?.let(::availableProjectsModeLabel).orEmpty()
+            }
+        }
+        responseFormatComboBox = ComboBox(McpSettings.ResponseFormat.values()).apply {
+            toolTipText = McpBundle.message("settings.responseFormat.tooltip")
+            renderer = SimpleListCellRenderer.create("") { value ->
+                value?.let(::responseFormatLabel).orEmpty()
+            }
+        }
 
         val warningLabel = JBLabel(McpBundle.message("settings.syncExternalChanges.warning")).apply {
             foreground = JBColor.RED
@@ -119,6 +135,8 @@ class McpSettingsConfigurable : Configurable {
             .addComponentToRightColumn(hostWarningLabel!!)
             .addLabeledComponent(JBLabel(McpBundle.message("settings.serverPort") + ":"), serverPortSpinner!!, 1, false)
             .addLabeledComponent(JBLabel(McpBundle.message("settings.maxHistorySize") + ":"), maxHistorySizeSpinner!!, 1, false)
+            .addLabeledComponent(JBLabel(McpBundle.message("settings.availableProjectsMode") + ":"), availableProjectsModeComboBox!!, 1, false)
+            .addLabeledComponent(JBLabel(McpBundle.message("settings.responseFormat") + ":"), responseFormatComboBox!!, 1, false)
             .addComponent(syncPanel, 1)
             .addSeparator(10)
             .addComponent(JBLabel(McpBundle.message("settings.tools.title")), 5)
@@ -163,7 +181,9 @@ class McpSettingsConfigurable : Configurable {
         if (serverHostField?.text?.trim() != settings.serverHost ||
             serverPortSpinner?.value != settings.serverPort ||
             maxHistorySizeSpinner?.value != settings.maxHistorySize ||
-            syncExternalChangesCheckBox?.isSelected != settings.syncExternalChanges) {
+            syncExternalChangesCheckBox?.isSelected != settings.syncExternalChanges ||
+            availableProjectsModeComboBox?.selectedItem != settings.availableProjectsMode ||
+            responseFormatComboBox?.selectedItem != settings.responseFormat) {
             return true
         }
 
@@ -217,6 +237,12 @@ class McpSettingsConfigurable : Configurable {
         settings.serverPort = newPort
         settings.maxHistorySize = maxHistorySizeSpinner?.value as? Int ?: 100
         settings.syncExternalChanges = syncExternalChangesCheckBox?.isSelected ?: false
+        settings.availableProjectsMode =
+            availableProjectsModeComboBox?.selectedItem as? McpSettings.AvailableProjectsMode
+                ?: McpSettings.AvailableProjectsMode.EXPANDED
+        settings.responseFormat =
+            responseFormatComboBox?.selectedItem as? McpSettings.ResponseFormat
+                ?: McpSettings.ResponseFormat.JSON
 
         val disabledTools = mutableSetOf<String>()
         for ((toolName, checkbox) in toolCheckBoxes) {
@@ -302,6 +328,8 @@ class McpSettingsConfigurable : Configurable {
         serverPortSpinner?.value = settings.serverPort
         maxHistorySizeSpinner?.value = settings.maxHistorySize
         syncExternalChangesCheckBox?.isSelected = settings.syncExternalChanges
+        availableProjectsModeComboBox?.selectedItem = settings.availableProjectsMode
+        responseFormatComboBox?.selectedItem = settings.responseFormat
         
         hostValidationErrorLabel?.isVisible = false
         hostValidationIcon?.isVisible = false
@@ -397,10 +425,24 @@ class McpSettingsConfigurable : Configurable {
         serverPortSpinner = null
         maxHistorySizeSpinner = null
         syncExternalChangesCheckBox = null
+        availableProjectsModeComboBox = null
+        responseFormatComboBox = null
         toolCheckBoxes.clear()
         uiDisposable?.let { Disposer.dispose(it) }
         uiDisposable = null
     }
+
+    private fun availableProjectsModeLabel(mode: McpSettings.AvailableProjectsMode): String =
+        when (mode) {
+            McpSettings.AvailableProjectsMode.EXPANDED -> McpBundle.message("settings.availableProjectsMode.expanded")
+            McpSettings.AvailableProjectsMode.COMPACT -> McpBundle.message("settings.availableProjectsMode.compact")
+        }
+
+    private fun responseFormatLabel(format: McpSettings.ResponseFormat): String =
+        when (format) {
+            McpSettings.ResponseFormat.JSON -> McpBundle.message("settings.responseFormat.json")
+            McpSettings.ResponseFormat.TOON -> McpBundle.message("settings.responseFormat.toon")
+        }
 
     companion object {
         private val IPV4_PATTERN = Regex("^[0-9.]+\$")

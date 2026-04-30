@@ -1,8 +1,10 @@
 package com.github.hechtcarmel.jetbrainsindexmcpplugin.server
 
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.constants.ErrorMessages
+import com.github.hechtcarmel.jetbrainsindexmcpplugin.settings.McpSettings
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.server.models.ContentBlock
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.server.models.ToolCallResult
+import com.github.hechtcarmel.jetbrainsindexmcpplugin.util.ResponseFormatter
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
@@ -10,6 +12,58 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.roots.ModuleRootManager
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.*
+
+internal data class AvailableProjectEntry(
+    val name: String,
+    val path: String,
+    val workspace: String? = null
+)
+
+/**
+ * Builds the `available_projects` JSON array from the given entries.
+ * When [includeWorkspaceSubProjects] is false, sub-project entries
+ * (those with a non-null `workspace`) are filtered out.
+ *
+ * Pure function — extracted so it can be unit-tested without the IntelliJ
+ * Platform or `McpSettings`.
+ */
+internal fun buildAvailableProjectsJson(
+    entries: List<AvailableProjectEntry>,
+    includeWorkspaceSubProjects: Boolean
+): JsonArray = buildJsonArray {
+    for (entry in entries) {
+        if (!includeWorkspaceSubProjects && entry.workspace != null) continue
+        add(buildJsonObject {
+            put("name", entry.name)
+            put("path", entry.path)
+            entry.workspace?.let { put("workspace", it) }
+        })
+    }
+}
+
+internal fun buildStructuredErrorResult(
+    payload: JsonObject,
+    format: McpSettings.ResponseFormat = McpSettings.ResponseFormat.JSON
+): ToolCallResult {
+    val json = Json { encodeDefaults = true; prettyPrint = false }
+    return try {
+        val jsonText = json.encodeToString(payload)
+        ToolCallResult(
+            content = listOf(
+                ContentBlock.Text(
+                    text = ResponseFormatter.formatStructuredPayload(jsonText, format)
+                )
+            ),
+            isError = true
+        )
+    } catch (e: Exception) {
+        val message = e.message?.takeIf { it.isNotBlank() } ?: "unknown error"
+        ToolCallResult(
+            content = listOf(ContentBlock.Text(text = "Response formatting failed: $message")),
+            isError = true
+        )
+    }
+}
 
 object ProjectResolver {
 
@@ -34,14 +88,12 @@ object ProjectResolver {
         if (openProjects.isEmpty()) {
             return Result(
                 isError = true,
-                errorResult = ToolCallResult(
-                    content = listOf(ContentBlock.Text(
-                        text = json.encodeToString(buildJsonObject {
-                            put("error", ErrorMessages.ERROR_NO_PROJECT_OPEN)
-                            put("message", ErrorMessages.MSG_NO_PROJECT_OPEN)
-                        })
-                    )),
-                    isError = true
+                errorResult = buildStructuredErrorResult(
+                    payload = buildJsonObject {
+                        put("error", ErrorMessages.ERROR_NO_PROJECT_OPEN)
+                        put("message", ErrorMessages.MSG_NO_PROJECT_OPEN)
+                    },
+                    format = responseFormat()
                 )
             )
         }
@@ -73,15 +125,13 @@ object ProjectResolver {
 
             return Result(
                 isError = true,
-                errorResult = ToolCallResult(
-                    content = listOf(ContentBlock.Text(
-                        text = json.encodeToString(buildJsonObject {
-                            put("error", ErrorMessages.ERROR_PROJECT_NOT_FOUND)
-                            put("message", ErrorMessages.msgProjectNotFound(projectPath))
-                            put("available_projects", buildAvailableProjectsArray(openProjects))
-                        })
-                    )),
-                    isError = true
+                errorResult = buildStructuredErrorResult(
+                    payload = buildJsonObject {
+                        put("error", ErrorMessages.ERROR_PROJECT_NOT_FOUND)
+                        put("message", ErrorMessages.msgProjectNotFound(projectPath))
+                        put("available_projects", buildAvailableProjectsArray(openProjects))
+                    },
+                    format = responseFormat()
                 )
             )
         }
@@ -94,15 +144,13 @@ object ProjectResolver {
         // Multiple projects open, no path specified - return error with list
         return Result(
             isError = true,
-            errorResult = ToolCallResult(
-                content = listOf(ContentBlock.Text(
-                    text = json.encodeToString(buildJsonObject {
-                        put("error", ErrorMessages.ERROR_MULTIPLE_PROJECTS)
-                        put("message", ErrorMessages.MSG_MULTIPLE_PROJECTS)
-                        put("available_projects", buildAvailableProjectsArray(openProjects))
-                    })
-                )),
-                isError = true
+            errorResult = buildStructuredErrorResult(
+                payload = buildJsonObject {
+                    put("error", ErrorMessages.ERROR_MULTIPLE_PROJECTS)
+                    put("message", ErrorMessages.MSG_MULTIPLE_PROJECTS)
+                    put("available_projects", buildAvailableProjectsArray(openProjects))
+                },
+                format = responseFormat()
             )
         )
     }
@@ -132,38 +180,64 @@ object ProjectResolver {
     }
 
     /**
-     * Builds the available_projects JSON array including workspace sub-project paths.
-     * For workspace projects, lists each module's content root as a separate entry
-     * so AI agents can discover the correct paths to use.
+     * Builds the available_projects JSON array, optionally including workspace
+     * sub-project paths so AI agents can discover the correct paths to use.
+     *
+     * Collection of entries (touches the IntelliJ Platform) is separated from
+     * JSON serialization (pure, unit-testable via [buildAvailableProjectsJson]).
      */
     private fun buildAvailableProjectsArray(openProjects: List<Project>): JsonArray {
-        return buildJsonArray {
-            for (proj in openProjects) {
-                add(buildJsonObject {
-                    put("name", proj.name)
-                    put("path", proj.basePath ?: "")
-                })
+        val includeWorkspaceSubProjects = isExpandedMode()
+        val entries = collectAvailableProjectEntries(openProjects, includeWorkspaceSubProjects)
+        return buildAvailableProjectsJson(entries, includeWorkspaceSubProjects)
+    }
 
-                // Include workspace sub-projects (module content roots)
-                try {
-                    val modules = ModuleManager.getInstance(proj).modules
-                    for (module in modules) {
-                        val contentRoots = ModuleRootManager.getInstance(module).contentRoots
-                        for (root in contentRoots) {
-                            val rootPath = root.path
-                            if (rootPath != proj.basePath) {
-                                add(buildJsonObject {
-                                    put("name", module.name)
-                                    put("path", rootPath)
-                                    put("workspace", proj.name)
-                                })
-                            }
+    private fun collectAvailableProjectEntries(
+        openProjects: List<Project>,
+        includeWorkspaceSubProjects: Boolean
+    ): List<AvailableProjectEntry> {
+        val entries = mutableListOf<AvailableProjectEntry>()
+        for (proj in openProjects) {
+            entries += AvailableProjectEntry(
+                name = proj.name,
+                path = proj.basePath ?: ""
+            )
+
+            if (!includeWorkspaceSubProjects) continue
+
+            try {
+                val modules = ModuleManager.getInstance(proj).modules
+                for (module in modules) {
+                    val contentRoots = ModuleRootManager.getInstance(module).contentRoots
+                    for (root in contentRoots) {
+                        val rootPath = root.path
+                        if (rootPath != proj.basePath) {
+                            entries += AvailableProjectEntry(
+                                name = module.name,
+                                path = rootPath,
+                                workspace = proj.name
+                            )
                         }
                     }
-                } catch (e: Exception) {
-                    LOG.debug("Failed to list module content roots for project ${proj.name}", e)
                 }
+            } catch (e: Exception) {
+                LOG.debug("Failed to list module content roots for project ${proj.name}", e)
             }
         }
+        return entries
     }
+
+    /**
+     * Reads the `availableProjectsMode` setting defensively so callers don't
+     * fail if the application service is unavailable (e.g. when invoked from
+     * a unit-test context where settings aren't registered).
+     */
+    private fun isExpandedMode(): Boolean =
+        runCatching { McpSettings.getInstance().availableProjectsMode }
+            .getOrDefault(McpSettings.AvailableProjectsMode.EXPANDED) ==
+            McpSettings.AvailableProjectsMode.EXPANDED
+
+    private fun responseFormat(): McpSettings.ResponseFormat =
+        runCatching { McpSettings.getInstance().responseFormat }
+            .getOrDefault(McpSettings.ResponseFormat.JSON)
 }

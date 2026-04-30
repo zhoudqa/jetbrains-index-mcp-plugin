@@ -1,6 +1,7 @@
 package com.github.hechtcarmel.jetbrainsindexmcpplugin.handlers.rust
 
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.handlers.*
+import com.github.hechtcarmel.jetbrainsindexmcpplugin.util.ProjectUtils
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.util.PluginDetectors
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
@@ -65,12 +66,11 @@ object RustHandlers {
             registry.registerTypeHierarchyHandler(RustTypeHierarchyHandler())
             registry.registerImplementationsHandler(RustImplementationsHandler())
             registry.registerCallHierarchyHandler(RustCallHierarchyHandler())
-            registry.registerSymbolSearchHandler(RustSymbolSearchHandler())
             // Note: SuperMethodsHandler is NOT registered for Rust because Rust uses trait
             // implementations rather than classical inheritance. There are no "super methods"
             // in the OOP sense. Users should use ide_find_definition or ide_type_hierarchy instead.
 
-            LOG.info("Registered Rust handlers (4 handlers - SuperMethods not applicable for Rust)")
+            LOG.info("Registered Rust handlers (3 handlers - SuperMethods not applicable for Rust)")
         } catch (e: ClassNotFoundException) {
             LOG.warn("Rust PSI classes not found, skipping registration: ${e.message}")
         } catch (e: Exception) {
@@ -321,8 +321,7 @@ abstract class BaseRustHandler<T> : LanguageHandler<T> {
     // Utility methods
 
     protected fun getRelativePath(project: Project, file: com.intellij.openapi.vfs.VirtualFile): String {
-        val basePath = project.basePath ?: return file.path
-        return file.path.removePrefix(basePath).removePrefix("/")
+        return ProjectUtils.getToolFilePath(project, file)
     }
 
     protected fun getLineNumber(project: Project, element: PsiElement): Int? {
@@ -398,43 +397,52 @@ class RustTypeHierarchyHandler : BaseRustHandler<TypeHierarchyData>(), TypeHiera
 
     override fun isAvailable(): Boolean = PluginDetectors.rust.isAvailable && rsTraitItemClass != null
 
-    override fun getTypeHierarchy(element: PsiElement, project: Project): TypeHierarchyData? {
+    override fun getTypeHierarchy(
+        element: PsiElement,
+        project: Project,
+        scope: BuiltInSearchScope
+    ): TypeHierarchyData? {
         LOG.debug("Getting type hierarchy for Rust element at ${element.containingFile?.name}")
+        val searchScope = createNavigationSearchScope(project, scope)
 
         // Handle traits
         val trait = findContainingRsTrait(element)
         if (trait != null) {
             LOG.debug("Getting hierarchy for trait: ${getName(trait)}")
-            return getTraitHierarchy(project, trait)
+            return getTraitHierarchy(project, trait, searchScope)
         }
 
         // Handle structs
         val struct = findContainingRsStruct(element)
         if (struct != null) {
             LOG.debug("Getting hierarchy for struct: ${getName(struct)}")
-            return getTypeImplHierarchy(project, struct)
+            return getTypeImplHierarchy(project, struct, searchScope)
         }
 
         // Handle enums
         val enum = findContainingRsEnum(element)
         if (enum != null) {
             LOG.debug("Getting hierarchy for enum: ${getName(enum)}")
-            return getTypeImplHierarchy(project, enum)
+            return getTypeImplHierarchy(project, enum, searchScope)
         }
 
         // Handle impl blocks
         val impl = findContainingRsImpl(element)
         if (impl != null) {
             LOG.debug("Getting hierarchy for impl block")
-            return getImplHierarchy(project, impl)
+            return getImplHierarchy(project, impl, searchScope)
         }
 
         return null
     }
 
-    private fun getTraitHierarchy(project: Project, trait: PsiElement): TypeHierarchyData {
-        val supertypes = getSupertraitHierarchy(project, trait, mutableSetOf())
-        val subtypes = getImplementingTypes(project, trait)
+    private fun getTraitHierarchy(
+        project: Project,
+        trait: PsiElement,
+        searchScope: GlobalSearchScope
+    ): TypeHierarchyData {
+        val supertypes = getSupertraitHierarchy(project, trait, mutableSetOf(), searchScope = searchScope)
+        val subtypes = getImplementingTypes(project, trait, searchScope)
 
         LOG.debug("Found ${supertypes.size} supertraits and ${subtypes.size} implementing types")
 
@@ -456,7 +464,8 @@ class RustTypeHierarchyHandler : BaseRustHandler<TypeHierarchyData>(), TypeHiera
         project: Project,
         trait: PsiElement,
         visited: MutableSet<String>,
-        depth: Int = 0
+        depth: Int = 0,
+        searchScope: GlobalSearchScope
     ): List<TypeElementData> {
         if (depth > MAX_HIERARCHY_DEPTH) return emptyList()
 
@@ -470,10 +479,14 @@ class RustTypeHierarchyHandler : BaseRustHandler<TypeHierarchyData>(), TypeHiera
             val superTraits = getSuperTraits(trait) ?: emptyList()
             for (superTraitRef in superTraits) {
                 val resolved = resolveReference(superTraitRef)
-                if (resolved != null && isRsTrait(resolved)) {
+                if (
+                    resolved != null &&
+                    isRsTrait(resolved) &&
+                    shouldIncludeNavigationElement(searchScope, resolved)
+                ) {
                     val resolvedName = getName(resolved) ?: continue
                     if (resolvedName !in visited) {
-                        val nestedSupertypes = getSupertraitHierarchy(project, resolved, visited, depth + 1)
+                        val nestedSupertypes = getSupertraitHierarchy(project, resolved, visited, depth + 1, searchScope)
                         supertypes.add(TypeElementData(
                             name = resolvedName,
                             qualifiedName = getQualifiedName(resolved),
@@ -493,14 +506,16 @@ class RustTypeHierarchyHandler : BaseRustHandler<TypeHierarchyData>(), TypeHiera
         return supertypes
     }
 
-    private fun getImplementingTypes(project: Project, trait: PsiElement): List<TypeElementData> {
+    private fun getImplementingTypes(
+        project: Project,
+        trait: PsiElement,
+        searchScope: GlobalSearchScope
+    ): List<TypeElementData> {
         val results = mutableListOf<TypeElementData>()
 
         try {
-            val scope = GlobalSearchScope.projectScope(project)
-
-            DefinitionsScopedSearch.search(trait, scope).forEach(Processor { definition ->
-                if (isRsImpl(definition)) {
+            DefinitionsScopedSearch.search(trait, searchScope).forEach(Processor { definition ->
+                if (isRsImpl(definition) && shouldIncludeNavigationElement(searchScope, definition)) {
                     val typeRef = getTypeReference(definition)
                     if (typeRef != null) {
                         val resolvedType = resolveReference(typeRef)
@@ -534,8 +549,12 @@ class RustTypeHierarchyHandler : BaseRustHandler<TypeHierarchyData>(), TypeHiera
         return results
     }
 
-    private fun getTypeImplHierarchy(project: Project, type: PsiElement): TypeHierarchyData {
-        val implementedTraits = findImplementedTraits(project, type)
+    private fun getTypeImplHierarchy(
+        project: Project,
+        type: PsiElement,
+        searchScope: GlobalSearchScope
+    ): TypeHierarchyData {
+        val implementedTraits = findImplementedTraits(project, type, searchScope)
 
         return TypeHierarchyData(
             element = TypeElementData(
@@ -551,16 +570,18 @@ class RustTypeHierarchyHandler : BaseRustHandler<TypeHierarchyData>(), TypeHiera
         )
     }
 
-    private fun findImplementedTraits(project: Project, type: PsiElement): List<TypeElementData> {
+    private fun findImplementedTraits(
+        project: Project,
+        type: PsiElement,
+        searchScope: GlobalSearchScope
+    ): List<TypeElementData> {
         val results = mutableListOf<TypeElementData>()
 
         try {
-            val scope = GlobalSearchScope.projectScope(project)
-
             // Search for references to this type to find impl blocks
-            ReferencesSearch.search(type, scope).forEach(Processor { reference ->
+            ReferencesSearch.search(type, searchScope).forEach(Processor { reference ->
                 val impl = findContainingRsImpl(reference.element)
-                if (impl != null) {
+                if (impl != null && shouldIncludeNavigationElement(searchScope, impl)) {
                     val traitRef = getTraitRef(impl)
                     if (traitRef != null) {
                         val resolvedTrait = resolveReference(traitRef)
@@ -592,7 +613,11 @@ class RustTypeHierarchyHandler : BaseRustHandler<TypeHierarchyData>(), TypeHiera
         return results
     }
 
-    private fun getImplHierarchy(project: Project, impl: PsiElement): TypeHierarchyData {
+    private fun getImplHierarchy(
+        project: Project,
+        impl: PsiElement,
+        searchScope: GlobalSearchScope
+    ): TypeHierarchyData {
         val traitRef = getTraitRef(impl)
         val typeRef = getTypeReference(impl)
 
@@ -603,7 +628,7 @@ class RustTypeHierarchyHandler : BaseRustHandler<TypeHierarchyData>(), TypeHiera
         if (traitRef != null) {
             val resolvedTrait = resolveReference(traitRef)
             val traitName = if (resolvedTrait != null) getName(resolvedTrait) else traitRef.text?.trim()
-            if (traitName != null) {
+            if (traitName != null && (resolvedTrait == null || shouldIncludeNavigationElement(searchScope, resolvedTrait))) {
                 val targetElement = resolvedTrait ?: impl
                 supertypes.add(TypeElementData(
                     name = traitName,
@@ -620,7 +645,7 @@ class RustTypeHierarchyHandler : BaseRustHandler<TypeHierarchyData>(), TypeHiera
         if (typeRef != null) {
             val resolvedType = resolveReference(typeRef)
             val typeName = if (resolvedType != null) getName(resolvedType) else typeRef.text?.trim()
-            if (typeName != null) {
+            if (typeName != null && (resolvedType == null || shouldIncludeNavigationElement(searchScope, resolvedType))) {
                 val targetElement = resolvedType ?: impl
                 subtypes.add(TypeElementData(
                     name = typeName,
@@ -679,8 +704,13 @@ class RustImplementationsHandler : BaseRustHandler<List<ImplementationData>>(), 
 
     override fun isAvailable(): Boolean = PluginDetectors.rust.isAvailable && rsTraitItemClass != null
 
-    override fun findImplementations(element: PsiElement, project: Project): List<ImplementationData>? {
+    override fun findImplementations(
+        element: PsiElement,
+        project: Project,
+        scope: BuiltInSearchScope
+    ): List<ImplementationData>? {
         LOG.debug("Finding implementations for element at ${element.containingFile?.name}")
+        val searchScope = createNavigationSearchScope(project, scope)
 
         // Check if it's a trait
         val trait = findContainingRsTrait(element)
@@ -689,11 +719,11 @@ class RustImplementationsHandler : BaseRustHandler<List<ImplementationData>>(), 
             val function = findContainingRsFunction(element)
             if (function != null && isWithinTrait(function)) {
                 LOG.debug("Finding method implementations for ${getName(function)}")
-                return findMethodImplementations(project, function, trait)
+                return findMethodImplementations(project, function, trait, searchScope)
             }
             // Otherwise, find all trait implementations
             LOG.debug("Finding trait implementations for ${getName(trait)}")
-            return findTraitImplementations(project, trait)
+            return findTraitImplementations(project, trait, searchScope)
         }
 
         // For methods in impl blocks, find the trait method and its implementations
@@ -706,7 +736,7 @@ class RustImplementationsHandler : BaseRustHandler<List<ImplementationData>>(), 
                     val resolvedTrait = resolveReference(traitRef)
                     if (resolvedTrait != null && isRsTrait(resolvedTrait)) {
                         LOG.debug("Finding implementations of trait method ${getName(function)}")
-                        return findMethodImplementations(project, function, resolvedTrait)
+                        return findMethodImplementations(project, function, resolvedTrait, searchScope)
                     }
                 }
             }
@@ -719,15 +749,18 @@ class RustImplementationsHandler : BaseRustHandler<List<ImplementationData>>(), 
         return findContainingRsTrait(function) != null
     }
 
-    private fun findTraitImplementations(project: Project, trait: PsiElement): List<ImplementationData> {
+    private fun findTraitImplementations(
+        project: Project,
+        trait: PsiElement,
+        searchScope: GlobalSearchScope
+    ): List<ImplementationData> {
         val results = mutableListOf<ImplementationData>()
 
         try {
-            val scope = GlobalSearchScope.projectScope(project)
             val traitName = getName(trait) ?: "unknown"
 
-            DefinitionsScopedSearch.search(trait, scope).forEach(Processor { definition ->
-                if (isRsImpl(definition)) {
+            DefinitionsScopedSearch.search(trait, searchScope).forEach(Processor { definition ->
+                if (isRsImpl(definition) && shouldIncludeNavigationElement(searchScope, definition)) {
                     val typeRef = getTypeReference(definition)
                     val file = definition.containingFile?.virtualFile
 
@@ -757,17 +790,17 @@ class RustImplementationsHandler : BaseRustHandler<List<ImplementationData>>(), 
     private fun findMethodImplementations(
         project: Project,
         method: PsiElement,
-        trait: PsiElement
+        trait: PsiElement,
+        searchScope: GlobalSearchScope
     ): List<ImplementationData> {
         val results = mutableListOf<ImplementationData>()
 
         try {
             val methodName = getName(method) ?: return emptyList()
-            val scope = GlobalSearchScope.projectScope(project)
 
             // Use DefinitionsScopedSearch to find implementations of this method
-            DefinitionsScopedSearch.search(method, scope).forEach(Processor { definition ->
-                if (isRsFunction(definition) && definition != method) {
+            DefinitionsScopedSearch.search(method, searchScope).forEach(Processor { definition ->
+                if (isRsFunction(definition) && definition != method && shouldIncludeNavigationElement(searchScope, definition)) {
                     val file = definition.containingFile?.virtualFile
                     if (file != null) {
                         val implItem = findContainingRsImpl(definition)
@@ -825,16 +858,18 @@ class RustCallHierarchyHandler : BaseRustHandler<CallHierarchyData>(), CallHiera
         element: PsiElement,
         project: Project,
         direction: String,
-        depth: Int
+        depth: Int,
+        scope: BuiltInSearchScope
     ): CallHierarchyData? {
         val function = findContainingRsFunction(element) ?: return null
         LOG.debug("Getting call hierarchy for ${getName(function)}, direction=$direction, depth=$depth")
+        val searchScope = createNavigationSearchScope(project, scope)
 
         val visited = mutableSetOf<String>()
         val calls = if (direction == "callers") {
-            findCallersRecursive(project, function, depth, visited)
+            findCallersRecursive(project, function, depth, visited, searchScope = searchScope)
         } else {
-            findCalleesRecursive(project, function, depth, visited)
+            findCalleesRecursive(project, function, depth, visited, searchScope = searchScope)
         }
 
         LOG.debug("Found ${calls.size} $direction")
@@ -850,7 +885,8 @@ class RustCallHierarchyHandler : BaseRustHandler<CallHierarchyData>(), CallHiera
         function: PsiElement,
         depth: Int,
         visited: MutableSet<String>,
-        stackDepth: Int = 0
+        stackDepth: Int = 0,
+        searchScope: GlobalSearchScope
     ): List<CallElementData> {
         if (stackDepth > MAX_STACK_DEPTH || depth <= 0) return emptyList()
 
@@ -859,28 +895,32 @@ class RustCallHierarchyHandler : BaseRustHandler<CallHierarchyData>(), CallHiera
         visited.add(key)
 
         return try {
-            val scope = GlobalSearchScope.projectScope(project)
             val references = mutableListOf<com.intellij.psi.PsiReference>()
 
-            ReferencesSearch.search(function, scope).forEach(Processor { reference ->
+            ReferencesSearch.search(function, searchScope).forEach(Processor { reference ->
                 references.add(reference)
                 references.size < MAX_RESULTS_PER_LEVEL * 2
             })
 
             LOG.debug("Found ${references.size} references for ${getName(function)}")
 
-            references.take(MAX_RESULTS_PER_LEVEL)
-                .mapNotNull { reference ->
-                    val refElement = reference.element
-                    val containingFunction = findContainingRsFunction(refElement)
-                    if (containingFunction != null && containingFunction != function) {
-                        val children = if (depth > 1) {
-                            findCallersRecursive(project, containingFunction, depth - 1, visited, stackDepth + 1)
-                        } else null
-                        createCallElement(project, containingFunction, children)
+            val results = mutableListOf<CallElementData>()
+            for (reference in references) {
+                if (results.size >= MAX_RESULTS_PER_LEVEL) break
+                val refElement = reference.element
+                val containingFunction = findContainingRsFunction(refElement)
+                if (containingFunction != null && containingFunction != function) {
+                    val children = if (depth > 1) {
+                        findCallersRecursive(project, containingFunction, depth - 1, visited, stackDepth + 1, searchScope)
                     } else null
+                    if (shouldIncludeNavigationElement(searchScope, containingFunction)) {
+                        results.add(createCallElement(project, containingFunction, children))
+                    } else if (children != null) {
+                        results.addAll(children)
+                    }
                 }
-                .distinctBy { it.name + it.file + it.line }
+            }
+            results.distinctBy { it.name + it.file + it.line }.take(MAX_RESULTS_PER_LEVEL)
         } catch (e: Exception) {
             LOG.warn("Error finding callers: ${e.message}")
             emptyList()
@@ -892,7 +932,8 @@ class RustCallHierarchyHandler : BaseRustHandler<CallHierarchyData>(), CallHiera
         function: PsiElement,
         depth: Int,
         visited: MutableSet<String>,
-        stackDepth: Int = 0
+        stackDepth: Int = 0,
+        searchScope: GlobalSearchScope
     ): List<CallElementData> {
         if (stackDepth > MAX_STACK_DEPTH || depth <= 0) return emptyList()
 
@@ -912,11 +953,19 @@ class RustCallHierarchyHandler : BaseRustHandler<CallHierarchyData>(), CallHiera
                     val resolved = resolveCallExpression(callExpr)
                     if (resolved != null && isRsFunction(resolved)) {
                         val children = if (depth > 1) {
-                            findCalleesRecursive(project, resolved, depth - 1, visited, stackDepth + 1)
+                            findCalleesRecursive(project, resolved, depth - 1, visited, stackDepth + 1, searchScope)
                         } else null
-                        val element = createCallElement(project, resolved, children)
-                        if (callees.none { it.name == element.name && it.file == element.file }) {
-                            callees.add(element)
+                        if (shouldIncludeNavigationElement(searchScope, resolved)) {
+                            val element = createCallElement(project, resolved, children)
+                            if (callees.none { it.name == element.name && it.file == element.file }) {
+                                callees.add(element)
+                            }
+                        } else if (children != null) {
+                            children.forEach { child ->
+                                if (callees.none { it.name == child.name && it.file == child.file }) {
+                                    callees.add(child)
+                                }
+                            }
                         }
                     }
                 }
@@ -1036,41 +1085,6 @@ class RustCallHierarchyHandler : BaseRustHandler<CallHierarchyData>(), CallHiera
         }
 
         return functionName
-    }
-}
-
-/**
- * Rust implementation of [SymbolSearchHandler].
- *
- * Uses the optimized [OptimizedSymbolSearch] infrastructure which leverages IntelliJ's
- * built-in "Go to Symbol" APIs with caching, word index, and prefix matching.
- */
-class RustSymbolSearchHandler : BaseRustHandler<List<SymbolData>>(), SymbolSearchHandler {
-
-    override val languageId = "Rust"
-
-    override fun canHandle(element: PsiElement): Boolean = isAvailable()
-
-    override fun isAvailable(): Boolean = PluginDetectors.rust.isAvailable && rsFileClass != null
-
-    override fun searchSymbols(
-        project: Project,
-        pattern: String,
-        includeLibraries: Boolean,
-        limit: Int,
-        matchMode: String
-    ): List<SymbolData> {
-        val scope = createFilteredScope(project, includeLibraries)
-
-        // Use the optimized platform-based search with language filter for Rust
-        return OptimizedSymbolSearch.search(
-            project = project,
-            pattern = pattern,
-            scope = scope,
-            limit = limit,
-            languageFilter = setOf("Rust"),
-            matchMode = matchMode
-        )
     }
 }
 

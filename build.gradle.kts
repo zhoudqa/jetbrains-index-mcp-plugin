@@ -43,6 +43,7 @@ dependencies {
 
     // Kotlinx Serialization
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.jtoon)
 
     // Ktor Server (for custom MCP server with configurable port)
     implementation(libs.ktor.server.core) {
@@ -72,6 +73,8 @@ dependencies {
 
     // IntelliJ Platform Gradle Plugin Dependencies Extension - read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin-dependencies-extension.html
     intellijPlatform {
+        pluginVerifier()
+        
         create(providers.gradleProperty("platformType"), providers.gradleProperty("platformVersion"))
 
         // Plugin Dependencies. Uses `platformBundledPlugins` property from the gradle.properties file for bundled IntelliJ Platform plugins.
@@ -84,6 +87,7 @@ dependencies {
         bundledModules(providers.gradleProperty("platformBundledModules").map { it.split(',') })
 
         testFramework(TestFrameworkType.Platform)
+
     }
 }
 
@@ -142,10 +146,11 @@ intellijPlatform {
     pluginVerification {
         ides {
             recommended()
-//            // Additional IDEs for multi-language support verification
-//            create("PC", "2025.1.2") // PyCharm Community
-//            create("PY", "2025.1.2") // PyCharm Professional
-//            create("WS", "2025.1.2") // WebStorm
+            // Keep the explicitly supported compatibility range under verifier coverage.
+            create("IU", "2025.3")
+            // CI must use a published IDE release version, not a raw build number.
+            // 2026.1 resolves correctly in JetBrains repositories and still keeps 261 as the baseline.
+            create("IU", "2026.1")
         }
     }
 }

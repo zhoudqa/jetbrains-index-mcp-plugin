@@ -3,6 +3,7 @@ package com.github.hechtcarmel.jetbrainsindexmcpplugin.tools
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.constants.ParamNames
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.constants.SchemaConstants
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.constants.ToolNames
+import com.github.hechtcarmel.jetbrainsindexmcpplugin.handlers.BuiltInSearchScope
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.editor.GetActiveFileTool
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.editor.OpenFileTool
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.intelligence.GetDiagnosticsTool
@@ -37,6 +38,16 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 class ToolsUnitTest : TestCase() {
+    private fun assertHasScopeAndNoLegacyFilters(properties: kotlinx.serialization.json.JsonObject?) {
+        val scopeProperty = properties?.get(ParamNames.SCOPE)?.jsonObject
+        assertNotNull("Should have scope property", scopeProperty)
+        assertEquals(
+            BuiltInSearchScope.supportedWireValues(),
+            scopeProperty?.get("enum")?.jsonArray?.map { it.jsonPrimitive.content }
+        )
+        assertNull("Should not have includeLibraries property", properties?.get("includeLibraries"))
+        assertNull("Should not have includeTests property", properties?.get("includeTests"))
+    }
 
     override fun setUp() {
         super.setUp()
@@ -134,6 +145,7 @@ class ToolsUnitTest : TestCase() {
         assertNotNull("Should have column property", properties?.get(ParamNames.COLUMN))
         assertNotNull("Should have language property", properties?.get(ParamNames.LANGUAGE))
         assertNotNull("Should have symbol property", properties?.get(ParamNames.SYMBOL))
+        assertHasScopeAndNoLegacyFilters(properties)
         assertNotNull("Should have cursor property", properties?.get("cursor"))
         assertNotNull("Should have pageSize property", properties?.get("pageSize"))
 
@@ -180,6 +192,7 @@ class ToolsUnitTest : TestCase() {
         assertNotNull("Should have line property", properties?.get(ParamNames.LINE))
         assertNotNull("Should have column property", properties?.get(ParamNames.COLUMN))
         assertNotNull("Should have className property", properties?.get(ParamNames.CLASS_NAME))
+        assertHasScopeAndNoLegacyFilters(properties)
     }
 
     fun testCallHierarchyToolSchema() {
@@ -197,6 +210,7 @@ class ToolsUnitTest : TestCase() {
         assertNotNull("Should have direction property", properties?.get(ParamNames.DIRECTION))
         assertNotNull("Should have language property", properties?.get(ParamNames.LANGUAGE))
         assertNotNull("Should have symbol property", properties?.get(ParamNames.SYMBOL))
+        assertHasScopeAndNoLegacyFilters(properties)
     }
 
     fun testFindImplementationsToolSchema() {
@@ -216,11 +230,36 @@ class ToolsUnitTest : TestCase() {
         assertNotNull("Should have column property", properties?.get(ParamNames.COLUMN))
         assertNotNull("Should have language property", properties?.get(ParamNames.LANGUAGE))
         assertNotNull("Should have symbol property", properties?.get(ParamNames.SYMBOL))
+        assertHasScopeAndNoLegacyFilters(properties)
         assertNotNull("Should have cursor property", properties?.get("cursor"))
         assertNotNull("Should have pageSize property", properties?.get("pageSize"))
 
         assertNull("Should not have anyOf (incompatible with Anthropic API)", schema["anyOf"])
         assertNull("Should not have required array (all params optional for pagination)", schema[SchemaConstants.REQUIRED])
+    }
+
+    fun testFindClassToolSchemaUsesScope() {
+        val tool = FindClassTool()
+        val properties = tool.inputSchema[SchemaConstants.PROPERTIES]?.jsonObject
+
+        assertNotNull("Should have query property", properties?.get(ParamNames.QUERY))
+        assertHasScopeAndNoLegacyFilters(properties)
+    }
+
+    fun testFindFileToolSchemaUsesScope() {
+        val tool = FindFileTool()
+        val properties = tool.inputSchema[SchemaConstants.PROPERTIES]?.jsonObject
+
+        assertNotNull("Should have query property", properties?.get(ParamNames.QUERY))
+        assertHasScopeAndNoLegacyFilters(properties)
+    }
+
+    fun testFindSymbolToolSchemaUsesScope() {
+        val tool = FindSymbolTool()
+        val properties = tool.inputSchema[SchemaConstants.PROPERTIES]?.jsonObject
+
+        assertNotNull("Should have query property", properties?.get(ParamNames.QUERY))
+        assertHasScopeAndNoLegacyFilters(properties)
     }
 
     fun testGetDiagnosticsToolSchema() {
@@ -280,9 +319,9 @@ class ToolsUnitTest : TestCase() {
      * Tests that the tool registry registers built-in tools correctly.
      *
      * Note: The number of tools registered depends on available language plugins:
-     * - Universal tools (4): Always registered in all IDEs
-     * - Navigation tools (5): Registered when language handlers are available (Java, Python, JS/TS)
-     * - Refactoring tools (2): Registered only when Java plugin is available
+     * - Universal tools: Always registered in all IDEs
+     * - Navigation tools: Registered when language handlers are available (Java, Python, JS/TS)
+     * - Refactoring tools: Registered only when Java plugin is available
      *
      * In a unit test environment without the full IntelliJ Platform, only universal tools
      * may be registered since plugin detection may fail.
@@ -295,6 +334,7 @@ class ToolsUnitTest : TestCase() {
         val universalTools = listOf(
             ToolNames.FIND_REFERENCES,
             ToolNames.FIND_DEFINITION,
+            ToolNames.FIND_SYMBOL,
             ToolNames.DIAGNOSTICS,
             ToolNames.INDEX_STATUS,
             ToolNames.SYNC_FILES,
@@ -317,7 +357,7 @@ class ToolsUnitTest : TestCase() {
             assertNotNull("Editor tool $toolName should be registered", tool)
         }
 
-        assertTrue("Should have at least 8 universal tools", registry.getAllTools().size >= 8)
+        assertTrue("Should have at least 9 universal tools", registry.getAllTools().size >= 9)
     }
 
     /**
@@ -338,7 +378,6 @@ class ToolsUnitTest : TestCase() {
             ToolNames.TYPE_HIERARCHY,
             ToolNames.CALL_HIERARCHY,
             ToolNames.FIND_IMPLEMENTATIONS,
-            ToolNames.FIND_SYMBOL,
             ToolNames.FIND_SUPER_METHODS,
             ToolNames.FILE_STRUCTURE
         )
@@ -356,12 +395,14 @@ class ToolsUnitTest : TestCase() {
         // Check if SafeDeleteTool is specifically registered (indicates Java plugin is available)
         val safeDeleteRegistered = registry.getTool(ToolNames.REFACTOR_SAFE_DELETE) != null
 
-        // In IntelliJ platform tests with Java plugin, all navigation and refactoring tools should be available
-        // In unit tests without platform, these may not be available (which is expected)
+        // In IntelliJ platform tests with Java plugin, all navigation and refactoring tools should be available.
+        // In unit tests, individual handler availability drives registration: the bundled Markdown plugin
+        // registers a structure handler (so FILE_STRUCTURE is expected), while Java-backed hierarchy/super
+        // tools require the Java plugin to be fully initialised. Assert at least one nav tool is registered
+        // when any handler loads, and that FILE_STRUCTURE is among them.
         if (registeredNavTools > 0) {
-            // If any navigation tools are registered, all should be registered (Java handlers provide all)
-            assertEquals("When language handlers available, all 6 navigation tools should be registered",
-                6, registeredNavTools)
+            assertTrue("FILE_STRUCTURE should be registered when the Markdown structure handler is available",
+                registry.getTool(ToolNames.FILE_STRUCTURE) != null)
         }
 
         if (safeDeleteRegistered) {
@@ -376,7 +417,23 @@ class ToolsUnitTest : TestCase() {
 
         // Log the actual tool count for debugging
         val totalTools = registry.getAllTools().size
-        println("Tool registry test: $totalTools tools registered (4 universal + $registeredNavTools navigation + $registeredRefTools refactoring)")
+        println("Tool registry test: $totalTools tools registered ($registeredNavTools navigation + $registeredRefTools refactoring)")
+    }
+
+    /**
+     * `ide_find_symbol` delegates to the platform's Go to Symbol popup stack (via
+     * [com.github.hechtcarmel.jetbrainsindexmcpplugin.handlers.OptimizedSymbolSearch] and
+     * [com.github.hechtcarmel.jetbrainsindexmcpplugin.handlers.PopupFaithfulSymbolSearch]),
+     * which works in any JetBrains IDE regardless of whether the plugin registers a
+     * language-specific handler. The tool should therefore always be registered.
+     */
+    fun testFindSymbolToolIsRegisteredAsUniversal() {
+        val registry = ToolRegistry()
+        registry.registerBuiltInTools()
+
+        val tool = registry.getTool(ToolNames.FIND_SYMBOL)
+        assertNotNull("ide_find_symbol should be registered as a universal tool", tool)
+        assertEquals(ToolNames.FIND_SYMBOL, tool?.name)
     }
 
     // Phase 3: Refactoring Tools Schema Tests
@@ -477,7 +534,7 @@ class ToolsUnitTest : TestCase() {
 
         assertNotNull("Should have project_path property", properties?.get(ParamNames.PROJECT_PATH))
         assertNotNull("Should have query property", properties?.get(ParamNames.QUERY))
-        assertNotNull("Should have includeLibraries property", properties?.get(ParamNames.INCLUDE_LIBRARIES))
+        assertHasScopeAndNoLegacyFilters(properties)
         assertNotNull("Should have limit property", properties?.get(ParamNames.LIMIT))
         assertNotNull("Should have cursor property", properties?.get("cursor"))
         assertNotNull("Should have pageSize property", properties?.get("pageSize"))
@@ -632,7 +689,7 @@ class ToolsUnitTest : TestCase() {
 
         assertNotNull("Should have project_path property", properties?.get(ParamNames.PROJECT_PATH))
         assertNotNull("Should have query property", properties?.get(ParamNames.QUERY))
-        assertNotNull("Should have includeLibraries property", properties?.get(ParamNames.INCLUDE_LIBRARIES))
+        assertHasScopeAndNoLegacyFilters(properties)
         assertNotNull("Should have limit property", properties?.get(ParamNames.LIMIT))
         assertNotNull("Should have cursor property", properties?.get("cursor"))
         assertNotNull("Should have pageSize property", properties?.get("pageSize"))
@@ -655,7 +712,7 @@ class ToolsUnitTest : TestCase() {
 
         assertNotNull("Should have project_path property", properties?.get(ParamNames.PROJECT_PATH))
         assertNotNull("Should have query property", properties?.get(ParamNames.QUERY))
-        assertNotNull("Should have includeLibraries property", properties?.get(ParamNames.INCLUDE_LIBRARIES))
+        assertHasScopeAndNoLegacyFilters(properties)
         assertNotNull("Should have limit property", properties?.get(ParamNames.LIMIT))
         assertNotNull("Should have cursor property", properties?.get("cursor"))
         assertNotNull("Should have pageSize property", properties?.get("pageSize"))
@@ -776,7 +833,7 @@ class ToolsUnitTest : TestCase() {
         assertNotNull("Should have project_path property", properties?.get(ParamNames.PROJECT_PATH))
         assertNotNull("Should have file property", properties?.get(ParamNames.FILE))
         assertNotNull("Should have destination property", properties?.get(ParamNames.DESTINATION))
-        assertNotNull("Should have update_references property", properties?.get(ParamNames.UPDATE_REFERENCES))
+        assertNull("Should not expose update_references anymore", properties?.get("update_references"))
 
         val required = schema[SchemaConstants.REQUIRED]
         assertNotNull("Should have required array", required)
@@ -804,22 +861,11 @@ class ToolsUnitTest : TestCase() {
 
     // ── matchMode enum schema tests ────────────────────────────────────────────
 
-    fun testFindSymbolToolSchemaHasMatchModeEnum() {
+    fun testFindSymbolToolSchemaDoesNotExposeMatchMode() {
         val tool = FindSymbolTool()
         val properties = tool.inputSchema[SchemaConstants.PROPERTIES]?.jsonObject
         assertNotNull("Should have properties", properties)
-
-        val matchModeProp = properties?.get(ParamNames.MATCH_MODE)?.jsonObject
-        assertNotNull("Should have matchMode property", matchModeProp)
-
-        val enumArray = matchModeProp?.get("enum")?.jsonArray
-        assertNotNull("matchMode should have an enum array", enumArray)
-
-        val values = enumArray?.map { it.jsonPrimitive.content }
-        assertTrue("enum should contain 'substring'", values?.contains("substring") == true)
-        assertTrue("enum should contain 'prefix'",    values?.contains("prefix")    == true)
-        assertTrue("enum should contain 'exact'",     values?.contains("exact")     == true)
-        assertEquals("enum should have exactly 3 values", 3, values?.size)
+        assertNull("ide_find_symbol should not expose matchMode", properties?.get(ParamNames.MATCH_MODE))
     }
 
     fun testFindClassToolSchemaHasMatchModeEnum() {

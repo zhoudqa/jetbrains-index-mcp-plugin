@@ -4,6 +4,99 @@
 
 ## [Unreleased]
 
+## [4.16.0] - 2026-04-24
+### Fixed
+- **`ide_find_symbol` ordering, missing/extra results, and qualified-query handling now match IntelliJ's Go to Symbol popup.** The tool previously ran the popup search separately for each registered language handler and concatenated results in handler-iteration order, which destroyed cross-language ranking. Symbol search now issues a single popup-backed call.
+
+### Added
+- **`ide_find_symbol` is now available in every compatible JetBrains IDE**, including RubyMine, CLion, DataGrip, Aqua, and DataSpell. Result quality depends on IDE-supplied `ChooseByNameContributor` extensions; `kind` and `qualifiedName` may fall back to generic values for languages the plugin doesn't special-case.
+
+### Changed
+- Internal: removed the `SymbolSearchHandler` interface and its nine language implementations (including the Markdown symbol-search handler added in 4.15.0); symbol search is now centralised in `OptimizedSymbolSearch` + `PopupFaithfulSymbolSearch`. Markdown heading navigation remains available through `ide_file_structure`, not `ide_find_symbol`.
+
+## [4.15.0] - 2026-04-24
+### Added
+- Added Markdown heading support for `ide_find_symbol` and `ide_file_structure`, backed by the bundled JetBrains Markdown PSI/indexes. Fixes [#149](https://github.com/hechtcarmel/jetbrains-index-mcp-plugin/issues/149).
+
+## [4.14.1] - 2026-04-22
+### Fixed
+- Reworked `ide_diagnostics` to use Marketplace-safe public IntelliJ APIs instead of internal highlighting APIs, resolving the JetBrains Marketplace internal API rejection.
+- Preserved fresh diagnostics for open editor files while falling back to public batch analysis for closed files, with updated tool messaging that explains the weaker closed-file `WEAK_WARNING` and intention coverage.
+
+## [4.14.0] - 2026-04-21
+### Added
+- Added a settings toggle to return structured MCP tool payloads as either JSON or TOON.
+
+## [4.13.2] - 2026-04-21
+### Fixed
+- **Qualified symbol search in `ide_find_symbol` now behaves much closer to IntelliJ's Go to Symbol popup** — queries like `BasicSolver.run` and `test.BasicSolver.run` now resolve the intended symbol instead of being treated like a plain symbol name. Fixes [#144](https://github.com/hechtcarmel/jetbrains-index-mcp-plugin/issues/144).
+
+## [4.13.1] - 2026-04-21
+### Fixed
+- Moving files now works more reliably, especially in PHP projects.
+
+## [4.13.0] - 2026-04-18
+### Changed
+- **Breaking: covered navigation and adjacent search tools now use built-in `scope` instead of `includeLibraries` / `includeTests`** — `ide_find_references`, `ide_find_implementations`, `ide_call_hierarchy`, `ide_type_hierarchy`, `ide_find_class`, `ide_find_file`, and `ide_find_symbol` now accept `scope` with the built-in values `project_files`, `project_and_libraries`, `project_production_files`, and `project_test_files`. The old boolean parameters are no longer part of the public contract.
+
+### Fixed
+- **Covered search/navigation tools now honor the requested built-in scope end-to-end** — library, production-only, and test-only searches now use explicit scoped IntelliJ searches instead of collapsing back to legacy boolean behavior in tool, handler, or contributor fallback paths.
+
+## [4.12.0] - 2026-04-18
+### Added
+- **Optional library/test filters for navigation tools** — `ide_find_implementations`, `ide_call_hierarchy`, `ide_type_hierarchy`, and `ide_find_references` now accept `includeLibraries` and `includeTests`, both defaulting to `true`, so agents can suppress dependency noise and test-only results when narrowing navigation queries. Addresses [#138](https://github.com/hechtcarmel/jetbrains-index-mcp-plugin/issues/138).
+
+### Fixed
+- **`includeLibraries=true` now widens hierarchy search scopes correctly** — call-hierarchy and related language-specific navigation searches no longer stay pinned to project-only scope when library results are requested, so callers/implementations from dependency sources can be returned again for library-backed targets.
+- **Navigation library/test filtering uses IntelliJ file-index classification** — project files are no longer misclassified as dependencies when filtering results, which preserves project implementations while still excluding actual library/test nodes.
+
+## [4.11.3] - 2026-04-17
+### Changed
+- Completely reworked `ide_diagnostics` for better reliability and multi-project support.
+
+## [4.11.2] - 2026-04-17
+### Fixed
+- **External library path round-tripping in read-only navigation tools** — Search results now preserve dependency/library paths, and read-only position-based navigation tools accept those returned absolute paths or `jar://` URLs. Fixes [#135](https://github.com/hechtcarmel/jetbrains-index-mcp-plugin/issues/135).
+- **Python dotted member definition resolution** — Position-based navigation now prefers the Python callable/member target for dotted expressions like `json.dumps`, `os.path.join`, and `datetime.datetime.now()` when the caret is on the member token, instead of incorrectly jumping to a module/package directory.
+- **Python supertypes and super-method hierarchies** — `ide_type_hierarchy` now returns Python supertypes again, and `ide_find_super_methods` now returns inherited Python override chains instead of empty hierarchies.
+
+## [4.11.1] - 2026-04-16
+### Fixed
+- **`ide_call_hierarchy` callers for Python functions in PyCharm** — Replaced the generic `ReferencesSearch`-based incoming call path with PyCharm's own Python call hierarchy API (`PyStaticCallHierarchyUtil.getCallers()`), so Python caller results now match the IDE's native behavior. Fixes [#133](https://github.com/hechtcarmel/jetbrains-index-mcp-plugin/issues/133).
+- **Python caller hierarchy compatibility failures are now explicit** — If the required PyCharm Python call hierarchy API is missing or incompatible in the current IDE/Python plugin build, the tool now returns a clear error instead of silently degrading to potentially incorrect results.
+
+## [4.11.0] - 2026-04-15
+### Added
+- Added a **Project list in error responses** setting with `Expanded` and `Compact` modes. Workspace sub-project/module content roots remain valid `project_path` targets, while compact mode limits invalid/missing `project_path` errors to top-level project roots only.
+
+## [4.10.5] - 2026-04-15
+### Changed
+- Relaxed IDE compatability requirements to 2025.3+ build, to support Android Studio which doesn't have 2026 yet 
+
+## [4.10.4] - 2026-04-12
+### Fixed
+- Improved command history stability during concurrent MCP tool calls.
+
+## [4.10.3] - 2026-04-11
+### Changed
+- **Streamable HTTP is now stateless** — The primary `/index-mcp/streamable-http` transport no longer creates or validates `Mcp-Session-Id` headers. Requests continue working across client reconnects and server restarts without transport reauthentication semantics.
+
+### Fixed
+- **Claude Code stale session failure mode** — Removed the transport-level stale session `404` path that Claude Code could surface as a misleading authentication problem, while preserving legacy SSE behavior.
+
+## [4.10.2] - 2026-04-11
+### Changed
+- **Streamable HTTP is now stateless** — The primary `/index-mcp/streamable-http` transport no longer creates or validates `Mcp-Session-Id` headers. Requests continue working across client reconnects and server restarts without transport reauthentication semantics.
+
+### Fixed
+- **Claude Code stale session failure mode** — Removed the transport-level stale session `404` path that Claude Code could surface as a misleading authentication problem, while preserving legacy SSE behavior.
+- **`ide_find_references` search failure handling** — Added defensive handling for `LinkageError` / `NoSuchMethodError` failures coming from IDE search infrastructure so affected calls return a structured error with fallback guidance instead of hanging indefinitely.
+- **Plugin verification baseline** — Added explicit Plugin Verifier coverage for IntelliJ IDEA Ultimate `2026.1` build `IU-261.22158.277` to keep this release line checked against the exact IDE version reported in [#122](https://github.com/hechtcarmel/jetbrains-index-mcp-plugin/issues/122).
+
+## [4.10.1] - 2026-04-07
+### Fixed
+- **`resolveVirtualFileAnywhere` Windows path handling** — Fixed path comparison failures on Windows caused by backslash path separators and case-insensitive VFS normalization. Uses NIO Path-based `isPathPrefixOf` for case-insensitive library JAR validation, and normalizes paths before comparison. Fixes issues where `Z:/Temp` paths were rejected due to VFS normalizing to `Z:/temp`.
+
 ## [4.10.0] - 2026-04-06
 ### Added
 - **Symbol reference resolution for position-based tools** — Five tools now accept `language` + `symbol` as an alternative to `file` + `line` + `column` for identifying the target element. The two parameter groups are mutually exclusive. Unlocks the ability to directly reference symbols from third-party libraries.

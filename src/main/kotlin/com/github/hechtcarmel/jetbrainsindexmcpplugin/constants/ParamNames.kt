@@ -12,7 +12,6 @@ object ParamNames {
 
     // Refactoring parameters
     const val DESTINATION = "destination"
-    const val UPDATE_REFERENCES = "update_references"
     const val NEW_NAME = "newName"
     const val METHOD_NAME = "methodName"
     const val VARIABLE_NAME = "variableName"
@@ -31,12 +30,12 @@ object ParamNames {
 
     // Type hierarchy parameters
     const val CLASS_NAME = "className"
+    const val SCOPE = "scope"
 
     // Other parameters
     const val DIRECTION = "direction"
     const val MAX_RESULTS = "maxResults"
     const val FIX_ID = "fixId"
-    const val INCLUDE_TESTS = "includeTests"
     const val PATH = "path"
     const val FQN = "fqn"
     const val QUALIFIED_NAME = "qualifiedName"
@@ -46,7 +45,6 @@ object ParamNames {
 
     // Symbol search parameters
     const val QUERY = "query"
-    const val INCLUDE_LIBRARIES = "includeLibraries"
     const val LIMIT = "limit"
     const val CONTEXT = "context"
     const val CASE_SENSITIVE = "caseSensitive"

@@ -2,7 +2,10 @@ package com.github.hechtcarmel.jetbrainsindexmcpplugin.tools.navigation
 
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.constants.ParamNames
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.constants.ToolNames
-import com.github.hechtcarmel.jetbrainsindexmcpplugin.handlers.LanguageHandlerRegistry
+import com.github.hechtcarmel.jetbrainsindexmcpplugin.handlers.BuiltInSearchScope
+import com.github.hechtcarmel.jetbrainsindexmcpplugin.handlers.BuiltInSearchScopeResolver
+import com.github.hechtcarmel.jetbrainsindexmcpplugin.handlers.OptimizedSymbolSearch
+import com.github.hechtcarmel.jetbrainsindexmcpplugin.handlers.SymbolData
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.server.PaginationService
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.server.ProjectResolver
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.server.models.ToolCallResult
@@ -14,17 +17,19 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.psi.util.PsiModificationTracker
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.encodeToJsonElement
-import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 
 /**
- * Tool for searching code symbols across multiple languages.
+ * Tool for searching code symbols by name.
  *
- * Supports: Java, Kotlin, Python, JavaScript, TypeScript, PHP, Rust
- *
- * Delegates to language-specific handlers via [LanguageHandlerRegistry].
+ * Works in any supported JetBrains IDE. Delegates to the headless Go to Symbol popup stack via
+ * [OptimizedSymbolSearch], so matching and ranking follow IntelliJ's own Go to Symbol popup.
  */
 class FindSymbolTool : AbstractMcpTool() {
 
@@ -36,26 +41,25 @@ class FindSymbolTool : AbstractMcpTool() {
     override val name = ToolNames.FIND_SYMBOL
 
     override val description = """
-        Search for symbols by name across the codebase. Use when you know a symbol name but not its location—finds classes, methods, fields, functions. Faster and more accurate than grep for code navigation.
+        Search for symbols by name across the codebase. Use when you know a symbol name but not its location—finds classes, methods, fields, and functions. Faster and more accurate than grep for code navigation.
 
-        Languages: Java, Kotlin, Python, JavaScript, TypeScript, PHP, Rust.
+        Works in any supported JetBrains IDE. Result quality is best for Java, Kotlin, Python, JavaScript, TypeScript, Go, PHP, and Rust; other IDE-supplied languages (Ruby, C/C++, SQL, …) are also returned with their IDE-provided metadata.
 
-        Matching: substring ("Service" → "UserService") and camelCase ("USvc" → "UserService").
+        Matching and ranking follow IntelliJ's Go to Symbol popup, including qualified queries like "BasicSolver.run".
 
         Returns: matching symbols with qualified names, file paths, line/column numbers, and kind.
 
         Supports pagination: first call returns results + nextCursor. Pass cursor to get the next page.
-        Parameters: query (required for fresh search), includeLibraries (optional, default: false), pageSize (optional, default: 25, max: 500), cursor (for pagination, replaces search params; project_path may still be required).
+        Parameters: query (required for fresh search), scope (optional, default: "project_files"; supported: project_files, project_and_libraries, project_production_files, project_test_files), language (optional case-insensitive filter, e.g. "Kotlin"), pageSize (optional, default: 25, max: 500), cursor (for pagination, replaces search params; project_path may still be required).
 
-        Example: {"query": "UserService"} or {"query": "find_user", "includeLibraries": true}
+        Example: {"query": "UserService"} or {"query": "find_user", "scope": "project_and_libraries"}
     """.trimIndent()
 
     override val inputSchema: JsonObject = SchemaBuilder.tool()
         .projectPath()
-        .stringProperty(ParamNames.QUERY, "Search pattern. Supports substring and camelCase matching. Required for fresh search, ignored when cursor is provided.")
-        .booleanProperty(ParamNames.INCLUDE_LIBRARIES, "Include symbols from library dependencies. Default: false.")
+        .stringProperty(ParamNames.QUERY, "Search pattern. Matching follows IntelliJ's Go to Symbol popup, including qualified queries. Required for fresh search, ignored when cursor is provided.")
+        .scopeProperty("Search scope. Default: project_files.")
         .stringProperty(ParamNames.LANGUAGE, "Filter results by language (e.g., \"Kotlin\", \"Java\", \"Python\"). Case-insensitive. Optional.")
-        .enumProperty(ParamNames.MATCH_MODE, "How to match the query. Default: \"substring\".", listOf("substring", "prefix", "exact"))
         .intProperty(ParamNames.LIMIT, "Maximum results per page (deprecated, use pageSize). Default: $DEFAULT_PAGE_SIZE, max: $MAX_PAGE_SIZE.")
         .stringProperty("cursor", "Pagination cursor from a previous response. When provided, returns the next page of results. Search parameters are ignored; project_path and pageSize may still be provided.")
         .intProperty("pageSize", "Results per page. Default: $DEFAULT_PAGE_SIZE, max: $MAX_PAGE_SIZE.")
@@ -82,9 +86,15 @@ class FindSymbolTool : AbstractMcpTool() {
 
         val query = arguments[ParamNames.QUERY]?.jsonPrimitive?.content
             ?: return createErrorResult("Missing required parameter: ${ParamNames.QUERY}")
-        val includeLibraries = arguments[ParamNames.INCLUDE_LIBRARIES]?.jsonPrimitive?.boolean ?: false
+        val rawScope = rawScopeValue(arguments[ParamNames.SCOPE])
+        val scope = try {
+            BuiltInSearchScopeResolver.parse(arguments, BuiltInSearchScope.PROJECT_FILES)
+        } catch (_: IllegalArgumentException) {
+            return createInvalidScopeError(rawScope)
+        } catch (_: IllegalStateException) {
+            return createInvalidScopeError(rawScope)
+        }
         val languageFilter = arguments[ParamNames.LANGUAGE]?.jsonPrimitive?.content
-        val matchMode = arguments[ParamNames.MATCH_MODE]?.jsonPrimitive?.content ?: "substring"
         val pageSize = resolvePageSize(arguments, DEFAULT_PAGE_SIZE, aliases = arrayOf("limit"))
         val collectLimit = maxOf(PaginationService.DEFAULT_OVERCOLLECT, pageSize)
 
@@ -94,52 +104,34 @@ class FindSymbolTool : AbstractMcpTool() {
 
         requireSmartMode(project)
 
-        val cursorToken = suspendingReadAction {
-            val handlers = LanguageHandlerRegistry.getAllSymbolSearchHandlers()
-            if (handlers.isEmpty()) {
-                return@suspendingReadAction null to createErrorResult(
-                    "No symbol search handlers available. " +
-                    "Supported languages: ${LanguageHandlerRegistry.getSupportedLanguagesForSymbolSearch()}"
-                )
-            }
+        val token = suspendingReadAction {
+            val searchScope = BuiltInSearchScopeResolver.resolveGlobalScope(project, scope)
+            val nativeLanguageFilter = languageFilter?.takeIf { it.isNotBlank() }?.let { setOf(it) }
+            val symbols = OptimizedSymbolSearch.search(
+                project = project,
+                pattern = query,
+                scope = searchScope,
+                limit = collectLimit,
+                languageFilter = nativeLanguageFilter
+            )
 
-            val allMatches = mutableListOf<SymbolMatch>()
-
-            for (handler in handlers) {
-                val handlerResults = handler.searchSymbols(project, query, includeLibraries, collectLimit, matchMode)
-                for (symbolData in handlerResults) {
-                    if (languageFilter != null && !symbolData.language.equals(languageFilter, ignoreCase = true)) continue
-                    allMatches.add(SymbolMatch(
-                        name = symbolData.name,
-                        qualifiedName = symbolData.qualifiedName,
-                        kind = symbolData.kind,
-                        file = symbolData.file,
-                        line = symbolData.line,
-                        column = symbolData.column,
-                        containerName = symbolData.containerName,
-                        language = symbolData.language
-                    ))
-                }
-            }
-
-            val sortedMatches = allMatches
-                .distinctBy { "${it.file}:${it.line}:${it.column}:${it.name}" }
+            val matches = symbols.map { it.toSymbolMatch() }
 
             val searchExtender: suspend (Set<String>, Int) -> List<PaginationService.SerializedResult> = { seenKeys, limit ->
                 suspendingReadAction {
-                    extendSearchSymbols(project, query, includeLibraries, matchMode, languageFilter, seenKeys, limit)
+                    extendSearchSymbols(project, query, scope, languageFilter, seenKeys, limit)
                 }
             }
 
-            val serializedResults = sortedMatches.map { sym ->
+            val serializedResults = matches.map { sym ->
                 PaginationService.SerializedResult(
-                    key = "${sym.file}:${sym.line}:${sym.column}:${sym.name}",
+                    key = sym.paginationKey(),
                     data = json.encodeToJsonElement(sym)
                 )
             }
 
             val paginationService = ApplicationManager.getApplication().getService(PaginationService::class.java)
-            val token = paginationService.createCursor(
+            paginationService.createCursor(
                 toolName = name,
                 results = serializedResults,
                 seenKeys = serializedResults.map { it.key }.toSet(),
@@ -148,14 +140,9 @@ class FindSymbolTool : AbstractMcpTool() {
                 projectBasePath = ProjectResolver.normalizePath(project.basePath ?: ""),
                 metadata = mapOf("query" to query)
             )
-
-            token to null
         }
 
-        val (token, errorResult) = cursorToken
-        if (errorResult != null) return errorResult
-
-        return buildPaginatedResult<SymbolMatch, FindSymbolResult>(getPageFromCache(token!!, pageSize, project)) { items, page ->
+        return buildPaginatedResult<SymbolMatch, FindSymbolResult>(getPageFromCache(token, pageSize, project)) { items, page ->
             FindSymbolResult(
                 symbols = items,
                 totalCount = page.totalCollected,
@@ -171,49 +158,67 @@ class FindSymbolTool : AbstractMcpTool() {
     }
 
     /**
-     * Re-executes the search to collect more results beyond the initial cache.
-     * This re-scans from the beginning, skipping already-seen keys — O(total_results) per extension.
-     * This is unavoidable: IntelliJ's search APIs (ReferencesSearch, PsiSearchHelper, etc.)
-     * don't support offset-based iteration or resumption.
+     * Re-executes the popup-backed search to collect more results beyond the initial cache.
+     * Skips already-seen keys in the caller's cache — O(total_results) per extension because
+     * the popup APIs don't support offset-based iteration.
      */
     private fun extendSearchSymbols(
         project: Project,
         query: String,
-        includeLibraries: Boolean,
-        matchMode: String,
+        scope: BuiltInSearchScope,
         languageFilter: String?,
         seenKeys: Set<String>,
         limit: Int
     ): List<PaginationService.SerializedResult> {
-        val handlers = LanguageHandlerRegistry.getAllSymbolSearchHandlers()
-        val allMatches = mutableListOf<SymbolMatch>()
+        val searchScope = BuiltInSearchScopeResolver.resolveGlobalScope(project, scope)
+        val nativeLanguageFilter = languageFilter?.takeIf { it.isNotBlank() }?.let { setOf(it) }
+        val symbols = OptimizedSymbolSearch.search(
+            project = project,
+            pattern = query,
+            scope = searchScope,
+            limit = limit + seenKeys.size,
+            languageFilter = nativeLanguageFilter
+        )
 
-        for (handler in handlers) {
-            val handlerResults = handler.searchSymbols(project, query, includeLibraries, limit + seenKeys.size, matchMode)
-            for (symbolData in handlerResults) {
-                if (languageFilter != null && !symbolData.language.equals(languageFilter, ignoreCase = true)) continue
-                allMatches.add(SymbolMatch(
-                    name = symbolData.name,
-                    qualifiedName = symbolData.qualifiedName,
-                    kind = symbolData.kind,
-                    file = symbolData.file,
-                    line = symbolData.line,
-                    column = symbolData.column,
-                    containerName = symbolData.containerName,
-                    language = symbolData.language
-                ))
-            }
-        }
-
-        return allMatches
-            .distinctBy { "${it.file}:${it.line}:${it.column}:${it.name}" }
-            .filter { sym -> "${sym.file}:${sym.line}:${sym.column}:${sym.name}" !in seenKeys }
+        return symbols.asSequence()
+            .map { it.toSymbolMatch() }
+            .filter { sym -> sym.paginationKey() !in seenKeys }
             .take(limit)
             .map { sym ->
                 PaginationService.SerializedResult(
-                    key = "${sym.file}:${sym.line}:${sym.column}:${sym.name}",
+                    key = sym.paginationKey(),
                     data = json.encodeToJsonElement(sym)
                 )
             }
+            .toList()
     }
+
+    private fun SymbolData.toSymbolMatch(): SymbolMatch = SymbolMatch(
+        name = name,
+        qualifiedName = qualifiedName,
+        kind = kind,
+        file = file,
+        line = line,
+        column = column,
+        containerName = containerName,
+        language = language
+    )
+
+    private fun SymbolMatch.paginationKey(): String = "$file:$line:$column:$name"
+
+    private fun rawScopeValue(scopeElement: JsonElement?): String = when (scopeElement) {
+        null -> ""
+        is JsonPrimitive -> scopeElement.content
+        else -> scopeElement.toString()
+    }
+
+    private fun createInvalidScopeError(provided: String): ToolCallResult =
+        createStructuredErrorResult(buildJsonObject {
+            put("error", JsonPrimitive("invalid_scope"))
+            put("parameter", JsonPrimitive(ParamNames.SCOPE))
+            put("provided", JsonPrimitive(provided))
+            put("supportedValues", buildJsonArray {
+                BuiltInSearchScope.supportedWireValues().forEach { add(JsonPrimitive(it)) }
+            })
+        })
 }

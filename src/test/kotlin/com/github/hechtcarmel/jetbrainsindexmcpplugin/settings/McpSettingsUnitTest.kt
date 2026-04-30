@@ -125,6 +125,38 @@ class McpSettingsUnitTest : TestCase() {
         assertEquals(300, state.maxHistorySize)
     }
 
+    fun testAvailableProjectsModeDefaultsAndDelegation() {
+        assertEquals(
+            "Default availableProjectsMode should be EXPANDED",
+            McpSettings.AvailableProjectsMode.EXPANDED,
+            McpSettings.State().availableProjectsMode
+        )
+
+        val settings = McpSettings()
+        assertEquals(McpSettings.AvailableProjectsMode.EXPANDED, settings.availableProjectsMode)
+
+        settings.availableProjectsMode = McpSettings.AvailableProjectsMode.COMPACT
+
+        assertEquals(McpSettings.AvailableProjectsMode.COMPACT, settings.availableProjectsMode)
+        assertEquals(McpSettings.AvailableProjectsMode.COMPACT, settings.state.availableProjectsMode)
+    }
+
+    fun testResponseFormatDefaultsAndDelegation() {
+        assertEquals(
+            "Default responseFormat should be JSON",
+            McpSettings.ResponseFormat.JSON,
+            McpSettings.State().responseFormat
+        )
+
+        val settings = McpSettings()
+        assertEquals(McpSettings.ResponseFormat.JSON, settings.responseFormat)
+
+        settings.responseFormat = McpSettings.ResponseFormat.TOON
+
+        assertEquals(McpSettings.ResponseFormat.TOON, settings.responseFormat)
+        assertEquals(McpSettings.ResponseFormat.TOON, settings.state.responseFormat)
+    }
+
     // Edge case tests
 
     fun testMaxHistorySizeZero() {

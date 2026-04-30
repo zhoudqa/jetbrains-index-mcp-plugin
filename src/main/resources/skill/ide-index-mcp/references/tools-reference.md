@@ -7,13 +7,13 @@ Complete parameter reference for all IDE MCP tools. All tools use JSON-RPC via M
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `project_path` | string, optional | Absolute path to project root. Required for multi-project workspaces. Omit for single-project setups. |
-| `file` | string | Path relative to project root (e.g., `src/main/App.java`). Never absolute. |
+| `file` | string | For project files, path relative to project root (e.g., `src/main/App.java`). `ide_read_file` and some read-only position-based navigation tools also accept dependency/library paths returned by the plugin as absolute paths or `jar://` URLs; check each tool section because support is tool-specific. |
 | `line` | integer | **1-based** line number |
-| `column` | integer | **1-based** column number. Place on the symbol name, not whitespace. |
+| `column` | integer | **1-based** column number. Place on the symbol name, not whitespace. For dotted expressions like `json.dumps()` or `os.path.join()`, point to the member token (`dumps`, `join`) when targeting the member definition. |
 | `language` | string | Language of the symbol (e.g., `"Java"`). Required when using `symbol`. |
 | `symbol` | string | Fully qualified symbol reference. Format: `com.example.ClassName`, `com.example.ClassName#memberName`. |
 
-**Symbol reference:** Some tools accept `language` + `symbol` as an alternative to `file` + `line` + `column`. The two groups are **mutually exclusive**. Currently supported for Java.
+**Symbol reference:** Some tools accept `language` + `symbol` as an alternative to `file` + `line` + `column`. The two groups are **mutually exclusive**. Currently supported for Java only. Unsupported languages are rejected explicitly; use `file` + `line` + `column` for other languages.
 
 ## Response Format
 
@@ -32,15 +32,19 @@ Find all usages of a symbol (semantic, not text search).
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `file` | string | conditional | Relative file path. Required for position-based lookup. |
+| `file` | string | conditional | Project-relative file path, or a dependency/library absolute path or `jar://` URL previously returned by the plugin. Required for position-based lookup. |
 | `line` | integer | conditional | 1-based line. Required for position-based lookup. |
 | `column` | integer | conditional | 1-based column. Required for position-based lookup. |
 | `language` | string | conditional | Symbol language (e.g., `"Java"`). Required for symbol-based lookup. |
 | `symbol` | string | conditional | Fully qualified symbol reference. Required for symbol-based lookup. |
-| `maxResults` | integer | no | Default 100, max 500 |
+| `scope` | enum | no | One of `project_files` (default), `project_and_libraries`, `project_production_files`, `project_test_files` |
+| `maxResults` | integer | no | Deprecated alias for `pageSize`. Default 100, max 500 |
+| `cursor` | string | no | Pagination cursor from a previous response. When provided, search parameters are ignored; `project_path` and `pageSize` may still be provided. |
+| `pageSize` | integer | no | Results per page. Default 100, max 500 |
 | `project_path` | string | no | Project root path |
 
-**Returns**: `{ usages: [{ file, line, column, context, type, astPath }], totalCount, truncated }`
+**Returns**: `{ usages: [{ file, line, column, context, type, astPath }], totalCount, truncated, nextCursor?, hasMore, totalCollected, offset, pageSize, stale }`
+**Pagination note**: `truncated` mirrors `hasMore`; when `hasMore` is `true`, pass `nextCursor` to fetch the next page.
 **type values**: `METHOD_CALL`, `FIELD_ACCESS`, `IMPORT`, `PARAMETER`, `VARIABLE`, `REFERENCE`
 
 ### ide_find_definition
@@ -50,7 +54,7 @@ Go to where a symbol is defined.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `file` | string | conditional | Relative file path. Required for position-based lookup. |
+| `file` | string | conditional | Project-relative file path, or a dependency/library absolute path or `jar://` URL previously returned by the plugin. Required for position-based lookup. |
 | `line` | integer | conditional | 1-based line. Required for position-based lookup. |
 | `column` | integer | conditional | 1-based column. Required for position-based lookup. |
 | `language` | string | conditional | Symbol language (e.g., `"Java"`). Required for symbol-based lookup. |
@@ -68,13 +72,16 @@ Search for classes/interfaces by name using IDE's class index. Equivalent to Ctr
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `query` | string | yes | Class name pattern |
-| `includeLibraries` | boolean | no | Include library classes (default false) |
+| `scope` | enum | no | One of `project_files` (default), `project_and_libraries`, `project_production_files`, `project_test_files` |
 | `language` | string | no | Filter: "Java", "Kotlin", "Python", etc. |
 | `matchMode` | enum | no | `substring` (default), `prefix`, `exact` |
-| `limit` | integer | no | Default 25, max 100 |
+| `limit` | integer | no | Deprecated alias for `pageSize`. Default 25, max 500 |
+| `cursor` | string | no | Pagination cursor from a previous response. When provided, search parameters are ignored; `project_path` and `pageSize` may still be provided. |
+| `pageSize` | integer | no | Results per page. Default 25, max 500 |
 | `project_path` | string | no | Project root path |
 
 **Returns**: `{ classes: [{name, qualifiedName, file, line, kind, language}], totalCount, query }`
+**Path note**: Project results use relative paths. Dependency/library results may use absolute paths or `jar://` URLs.
 **Matching**: CamelCase (`USvc` -> `UserService`), substring, wildcard (`User*Impl`).
 
 ### ide_find_file
@@ -83,11 +90,14 @@ Search for files by name using IDE's file index. Equivalent to Ctrl+Shift+N / Cm
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `query` | string | yes | File name pattern |
-| `includeLibraries` | boolean | no | Include library files (default false) |
-| `limit` | integer | no | Default 25, max 100 |
+| `scope` | enum | no | One of `project_files` (default), `project_and_libraries`, `project_production_files`, `project_test_files` |
+| `limit` | integer | no | Deprecated alias for `pageSize`. Default 25, max 500 |
+| `cursor` | string | no | Pagination cursor from a previous response. When provided, search parameters are ignored; `project_path` and `pageSize` may still be provided. |
+| `pageSize` | integer | no | Results per page. Default 25, max 500 |
 | `project_path` | string | no | Project root path |
 
 **Returns**: `{ files: [{name, path, directory}], totalCount, query }`
+**Path note**: Project results use relative paths. Dependency/library results may use absolute paths or `jar://` URLs.
 
 ### ide_search_text
 Search for exact words using IDE's pre-built word index. O(1) lookups, not file scanning.
@@ -109,29 +119,35 @@ Find implementations of interfaces, abstract classes, or abstract methods.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `file` | string | conditional | Relative file path. Required for position-based lookup. |
+| `file` | string | conditional | Project-relative file path, or a dependency/library absolute path or `jar://` URL previously returned by the plugin. Required for position-based lookup. |
 | `line` | integer | conditional | 1-based line. Required for position-based lookup. |
 | `column` | integer | conditional | 1-based column. Required for position-based lookup. |
 | `language` | string | conditional | Symbol language (e.g., `"Java"`). Required for symbol-based lookup. |
 | `symbol` | string | conditional | Fully qualified symbol reference. Required for symbol-based lookup. |
+| `scope` | enum | no | One of `project_files` (default), `project_and_libraries`, `project_production_files`, `project_test_files` |
+| `cursor` | string | no | Pagination cursor from a previous response. When provided, search parameters are ignored; `project_path` and `pageSize` may still be provided. |
+| `pageSize` | integer | no | Results per page. Default 100, max 500 |
 | `project_path` | string | no | Project root path |
 
-**Returns**: `{ implementations: [{file, line, column, name, containerName}], totalCount }`
+**Returns**: `{ implementations: [{name, file, line, column, kind, language}], totalCount, nextCursor?, hasMore, totalCollected, offset, pageSize, stale }`
 **Languages**: Java, Kotlin, Python, JS/TS, PHP, Rust (not Go).
 
 ### ide_find_symbol (disabled by default)
-Search for any symbol (classes, methods, fields, functions) by name.
+Search for any code symbol (classes, methods, fields, functions) by name.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `query` | string | yes | Symbol name pattern |
-| `includeLibraries` | boolean | no | Default false |
+| `query` | string | yes | Symbol name pattern. Matching follows IntelliJ's Go to Symbol popup, including qualified queries like `BasicSolver.run`. |
+| `scope` | enum | no | One of `project_files` (default), `project_and_libraries`, `project_production_files`, `project_test_files` |
 | `language` | string | no | Filter by language |
-| `matchMode` | enum | no | `substring` (default), `prefix`, `exact` |
-| `limit` | integer | no | Default 25, max 100 |
+| `limit` | integer | no | Deprecated alias for `pageSize`. Default 25, max 500 |
+| `cursor` | string | no | Pagination cursor from a previous response. When provided, search parameters are ignored; `project_path` and `pageSize` may still be provided. |
+| `pageSize` | integer | no | Results per page. Default 25, max 500 |
 | `project_path` | string | no | Project root path |
 
 **Returns**: `{ symbols: [{name, qualifiedName, file, line, kind, language}], totalCount, query }`
+**Languages**: Java, Kotlin, Python, JS/TS, Go, PHP, Rust, plus other IDE-supplied symbol contributors where available.
+**Path note**: Project results use relative paths. Dependency/library results may use absolute paths or `jar://` URLs.
 
 ### ide_find_super_methods
 Find parent methods that a given method overrides or implements.
@@ -140,7 +156,7 @@ Find parent methods that a given method overrides or implements.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `file` | string | conditional | Relative file path. Required for position-based lookup. |
+| `file` | string | conditional | Project-relative file path, or a dependency/library absolute path or `jar://` URL previously returned by the plugin. Required for position-based lookup. |
 | `line` | integer | conditional | 1-based line. Required for position-based lookup. |
 | `column` | integer | conditional | 1-based column (anywhere in method body works). Required for position-based lookup. |
 | `language` | string | conditional | Symbol language (e.g., `"Java"`). Required for symbol-based lookup. |
@@ -156,13 +172,14 @@ Get complete type inheritance hierarchy (supertypes and subtypes).
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `className` | string | no | FQN (preferred, faster). E.g., `com.example.MyClass` |
-| `file` | string | no | Alternative: file path |
+| `file` | string | no | Alternative: project-relative file path. Unlike other read-only navigation tools, `ide_type_hierarchy` file mode does not resolve dependency/library absolute paths or `jar://` URLs. |
 | `line` | integer | no | Required with file |
 | `column` | integer | no | Required with file |
+| `scope` | enum | no | One of `project_files` (default), `project_and_libraries`, `project_production_files`, `project_test_files` |
 | `project_path` | string | no | Project root path |
 
 **Provide either** `className` **or** `file`+`line`+`column`.
-**Returns**: `{ element: {name, qualifiedName, file, line}, supertypes: [...], subtypes: [...] }`
+**Returns**: `{ element: {name, file, kind, language, supertypes?}, supertypes: [{name, file, kind, language, supertypes?}], subtypes: [{name, file, kind, language, supertypes?}] }`
 **Languages**: Java, Kotlin, Python, JS/TS, PHP, Rust.
 
 ### ide_call_hierarchy
@@ -172,16 +189,17 @@ Build call tree showing who calls a method or what a method calls.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `file` | string | conditional | Relative file path. Required for position-based lookup. |
+| `file` | string | conditional | Project-relative file path, or a dependency/library absolute path or `jar://` URL previously returned by the plugin. Required for position-based lookup. |
 | `line` | integer | conditional | 1-based line. Required for position-based lookup. |
 | `column` | integer | conditional | 1-based column. Required for position-based lookup. |
 | `language` | string | conditional | Symbol language (e.g., `"Java"`). Required for symbol-based lookup. |
 | `symbol` | string | conditional | Fully qualified symbol reference. Required for symbol-based lookup. |
 | `direction` | enum | yes | `callers` or `callees` |
 | `depth` | integer | no | Recursion depth (default 3, max 5) |
+| `scope` | enum | no | One of `project_files` (default), `project_and_libraries`, `project_production_files`, `project_test_files` |
 | `project_path` | string | no | Project root path |
 
-**Returns**: `{ element: {name, file, line}, calls: [{name, file, line, children: [...]}] }`
+**Returns**: `{ element: {name, file, line, column, language}, calls: [{name, file, line, column, language, children: [...]}] }`
 
 ### ide_file_structure (disabled by default)
 Get hierarchical file structure like IDE's Structure panel.
@@ -192,7 +210,7 @@ Get hierarchical file structure like IDE's Structure panel.
 | `project_path` | string | no | Project root path |
 
 **Returns**: `{ file, language, structure }` (formatted tree with types, modifiers, signatures, line numbers)
-**Languages**: Java, Kotlin, Python, JS/TS.
+**Languages**: Java, Kotlin, Python, JS/TS, Markdown.
 
 ### ide_read_file (disabled by default)
 Read file content by path or qualified name, including library/jar sources.
@@ -224,8 +242,9 @@ Analyze a file for errors, warnings, and available quick fixes/intentions.
 | `endLine` | integer | no | Filter problems to range |
 | `project_path` | string | no | Project root path |
 
-**Returns**: `{ problems: [{message, severity, line, column, source}], intentions: [{name, description, familyName}], problemCount, intentionCount }`
-**Severity levels**: `ERROR`, `WARNING`, `WEAK_WARNING`, `INFO`
+**Returns**: `{ problems: [{message, severity, line, column, source}], intentions: [{name, description, familyName}], problemCount, intentionCount, analysisFresh, analysisTimedOut, analysisMessage }`
+**Notes**: Open files use fresh daemon highlights. Closed files use public batch analysis, so `WEAK_WARNING` results and quick-fix intentions may be less complete unless the file is already open in an editor.
+**Severity levels**: `ERROR`, `WARNING`, `WEAK_WARNING`
 
 ---
 
@@ -252,13 +271,12 @@ Rename a symbol and update ALL references (semantic rename, not find-replace). W
 **Supports IDE undo** (Ctrl+Z).
 
 ### ide_move_file
-Move a file to a new directory, updating all references, imports, and package declarations. Works across ALL languages.
+Move a file to a new directory. Applies language-aware reference, import, and package/namespace updates only when the IDE provides a semantic move backend for that file type.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `file` | string | yes | Relative path of file to move |
 | `destination` | string | yes | Target directory (relative to project root, created if needed) |
-| `update_references` | boolean | no | Update references (default true) |
 | `project_path` | string | no | Project root path |
 
 **Returns**: `{ success, affectedFiles: [paths], changesCount, message }`

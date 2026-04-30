@@ -64,7 +64,6 @@ src/
 │   │   │   └── transport/              # HTTP+SSE transport layer
 │   │   │       ├── KtorMcpServer.kt    # Embedded Ktor CIO server
 │   │   │       ├── KtorSseSessionManager.kt # SSE session management
-│   │   │       └── StreamableHttpSessionManager.kt # Streamable HTTP session management
 │   │   ├── startup/                    # Startup activities
 │   │   ├── tools/                      # MCP tool implementations
 │   │   │   ├── McpTool.kt             # Tool interface
@@ -127,7 +126,7 @@ represented as modules with separate content roots:
 - **File resolution** (`AbstractMcpTool.resolveFile`): Tries basePath, then module content roots
 - **Relative path computation** (`ProjectUtils.getRelativePath`): Strips the matching content root prefix
 - **VFS/PSI sync** (`AbstractMcpTool.ensurePsiUpToDate`): Refreshes all content roots, not just basePath
-- **Error responses**: `available_projects` array includes workspace sub-projects with their `workspace` parent name
+- **Error responses**: `available_projects` detail is configurable. Expanded mode includes workspace sub-projects with their `workspace` parent name; compact mode returns only top-level project roots.
 
 Key utility: `ProjectUtils.getModuleContentRoots(project)` returns all module content root paths.
 
@@ -153,9 +152,9 @@ MCP servers expose:
 **Transport**: This plugin supports two transports with JSON-RPC 2.0:
 
 *Streamable HTTP (Primary, MCP 2025-03-26):*
-- `POST /index-mcp/streamable-http` → JSON-RPC requests/responses with `Mcp-Session-Id` header
+- `POST /index-mcp/streamable-http` → Stateless JSON-RPC requests/responses
 - `GET /index-mcp/streamable-http` → 405 Method Not Allowed
-- `DELETE /index-mcp/streamable-http` → Session termination
+- `DELETE /index-mcp/streamable-http` → 405 Method Not Allowed
 
 *Legacy SSE (MCP 2024-11-05):*
 - `GET /index-mcp/sse` → Opens SSE stream, sends `endpoint` event with POST URL
@@ -363,11 +362,12 @@ Tests are split into two categories to optimize execution time:
 
 Tools are organized by IDE availability.
 
-**Universal Tools (All JetBrains IDEs):**
+**Universal Tools (All Supported JetBrains IDEs):**
 - `ide_find_references` - Find all usages of a symbol. Supports `language`+`symbol` as alternative to `file`+`line`+`column`.
 - `ide_find_definition` - Find symbol definition location. Supports `language`+`symbol` as alternative to `file`+`line`+`column`.
 - `ide_find_class` - Search for classes/interfaces by name with camelCase/substring/wildcard matching
 - `ide_find_file` - Search for files by name using IDE's file index
+- `ide_find_symbol` - Search for symbols (classes, methods, fields, functions) by name with IntelliJ Go to Symbol matching (disabled by default)
 - `ide_search_text` - Text search using IDE's pre-built word index with context filtering
 - `ide_read_file` - Read file content by path or qualified name, including library/jar sources (disabled by default)
 - `ide_diagnostics` - Unified diagnostics tool: per-file code analysis (errors, warnings, intentions), build output from last build, and test results from open test run tabs. Supports `includeBuildErrors`, `includeTestResults`, `severity` filter, `testResultFilter`, `maxBuildErrors`, `maxTestResults`. The `file` parameter is now optional.
@@ -383,13 +383,12 @@ Tools are organized by IDE availability.
 
 **Extended Navigation Tools (Language-Aware):**
 
-These activate based on available language plugins (Java, Python, JavaScript/TypeScript, Go, PHP, Rust):
+These activate based on available language plugins (Java, Python, JavaScript/TypeScript, Go, PHP, Rust, Markdown):
 - `ide_type_hierarchy` - Get type hierarchy for a class (Java, Kotlin, Python, JS/TS, Go, PHP, Rust)
 - `ide_call_hierarchy` - Get call hierarchy for a method (Java, Kotlin, Python, JS/TS, Go, PHP, Rust). Supports `language`+`symbol` as alternative to `file`+`line`+`column`.
 - `ide_find_implementations` - Find implementations of interface/method (Java, Kotlin, Python, JS/TS, PHP, Rust — not Go). Supports `language`+`symbol` as alternative to `file`+`line`+`column`.
-- `ide_find_symbol` - Search for symbols (classes, methods, fields) by name with fuzzy/camelCase matching (disabled by default)
 - `ide_find_super_methods` - Find methods that a given method overrides/implements (Java, Kotlin, Python, JS/TS, PHP — not Go, Rust). Supports `language`+`symbol` as alternative to `file`+`line`+`column`.
-- `ide_file_structure` - Get hierarchical file structure similar to IDE's Structure view (Java, Kotlin, Python, JS/TS) (disabled by default)
+- `ide_file_structure` - Get hierarchical file structure similar to IDE's Structure view (Java, Kotlin, Python, JS/TS, Markdown) (disabled by default)
 
 **Java/Kotlin-Only Refactoring Tools:**
 - `ide_refactor_safe_delete` - Safely delete element (requires Java plugin)
@@ -418,7 +417,6 @@ The plugin uses a language handler pattern for multi-IDE support:
 - `TypeHierarchyHandler` - Type hierarchy lookup
 - `ImplementationsHandler` - Find implementations
 - `CallHierarchyHandler` - Call hierarchy analysis
-- `SymbolSearchHandler` - Symbol search by name
 - `SymbolReferenceHandler` - Resolve fully qualified symbol references (e.g., `com.example.MyClass#method(String)`) to PSI elements
 - `SuperMethodsHandler` - Method override hierarchy
 

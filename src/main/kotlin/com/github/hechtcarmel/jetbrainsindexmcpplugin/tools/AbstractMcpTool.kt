@@ -12,6 +12,8 @@ import com.github.hechtcarmel.jetbrainsindexmcpplugin.server.models.ToolCallResu
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.settings.McpSettings
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.util.ClassResolver
 import com.github.hechtcarmel.jetbrainsindexmcpplugin.util.ProjectUtils
+import com.github.hechtcarmel.jetbrainsindexmcpplugin.util.PsiUtils
+import com.github.hechtcarmel.jetbrainsindexmcpplugin.util.ResponseFormatter
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
@@ -39,6 +41,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.int
@@ -172,7 +175,7 @@ abstract class AbstractMcpTool : McpTool {
      * Uses non-blocking coroutine approach to avoid EDT freezes.
      */
     private suspend fun ensurePsiUpToDate(project: Project) {
-        // 1. Force VFS to see external changes (async refresh)
+        // 1. Force VFS to see external changes before PSI work proceeds.
         // Refresh all content roots (includes workspace sub-project directories)
         val dirsToRefresh = mutableListOf<VirtualFile>()
         val projectDir = project.basePath?.let { LocalFileSystem.getInstance().findFileByPath(it) }
@@ -185,7 +188,7 @@ abstract class AbstractMcpTool : McpTool {
             }
         }
         if (dirsToRefresh.isNotEmpty()) {
-            VfsUtil.markDirtyAndRefresh(true, true, true, *dirsToRefresh.toTypedArray())
+            VfsUtil.markDirtyAndRefresh(false, true, true, *dirsToRefresh.toTypedArray())
         }
 
         // 2. Commit Documents in a write-safe context
@@ -379,6 +382,18 @@ abstract class AbstractMcpTool : McpTool {
     }
 
     /**
+     * Gets the PSI file for a navigation target path.
+     *
+     * Unlike [getPsiFile], this may resolve files from project dependencies/libraries
+     * in addition to project content roots. It is intended only for read-only
+     * navigation flows that need to round-trip tool output back into PSI.
+     */
+    protected fun getNavigablePsiFile(project: Project, path: String): PsiFile? {
+        val virtualFile = PsiUtils.resolveNavigableVirtualFile(project, path) ?: return null
+        return PsiManager.getInstance(project).findFile(virtualFile)
+    }
+
+    /**
      * Finds the PSI element at a specific position in a file.
      *
      * @param project The project context
@@ -401,6 +416,25 @@ abstract class AbstractMcpTool : McpTool {
     }
 
     /**
+     * Finds a PSI element in a read-only navigation target.
+     *
+     * Supports the same project/content-root files as [findPsiElement] plus library
+     * files that are part of the current project's dependency graph.
+     */
+    protected fun findNavigablePsiElement(
+        project: Project,
+        file: String,
+        line: Int,
+        column: Int
+    ): PsiElement? {
+        val psiFile = getNavigablePsiFile(project, file) ?: return null
+        val document = PsiDocumentManager.getInstance(project).getDocument(psiFile) ?: return null
+
+        val offset = getOffset(document, line, column) ?: return null
+        return psiFile.findElementAt(offset)
+    }
+
+    /**
      * Resolves a PSI element from arguments using either `language`+`symbol` or `file`+`line`+`column`.
      *
      * These two parameter groups are mutually exclusive.
@@ -415,7 +449,8 @@ abstract class AbstractMcpTool : McpTool {
     @RequiresReadLock
     protected fun resolveElementFromArguments(
         project: Project,
-        arguments: JsonObject
+        arguments: JsonObject,
+        allowLibraryFilesForPosition: Boolean = false
     ): Result<PsiElement> {
         val language = arguments[ParamNames.LANGUAGE]?.jsonPrimitive?.content
         val symbol = arguments[ParamNames.SYMBOL]?.jsonPrimitive?.content
@@ -447,7 +482,11 @@ abstract class AbstractMcpTool : McpTool {
             if (line == null) return ErrorMessages.missingParamForPosition(ParamNames.LINE, "file or column").toArgumentFailure()
             if (column == null) return ErrorMessages.missingParamForPosition(ParamNames.COLUMN, "file or line").toArgumentFailure()
 
-            val element = findPsiElement(project, file, line, column)
+            val element = if (allowLibraryFilesForPosition) {
+                findNavigablePsiElement(project, file, line, column)
+            } else {
+                findPsiElement(project, file, line, column)
+            }
                 ?: return ErrorMessages.noElementAtPosition(file, line, column).toArgumentFailure()
 
             return Result.success(element)
@@ -612,16 +651,50 @@ abstract class AbstractMcpTool : McpTool {
     }
 
     /**
+     * Creates an error result with a structured payload.
+     *
+     * The payload is emitted using the configured response format.
+     * If formatting fails, returns a plain-text formatting error instead.
+     */
+    protected fun createStructuredErrorResult(data: JsonElement): ToolCallResult {
+        return try {
+            val jsonText = json.encodeToString(JsonElement.serializer(), data)
+            ToolCallResult(
+                content = listOf(ContentBlock.Text(text = formatStructuredPayload(jsonText))),
+                isError = true
+            )
+        } catch (e: Exception) {
+            createErrorResult(formattingFailureMessage(e))
+        }
+    }
+
+    /**
      * Creates a successful result with JSON-serialized data.
      *
      * @param data The data to serialize (must be @Serializable)
      * @return A [ToolCallResult] with JSON content and `isError = false`
      */
     protected inline fun <reified T> createJsonResult(data: T): ToolCallResult {
-        val jsonText = json.encodeToString(data)
-        return ToolCallResult(
-            content = listOf(ContentBlock.Text(text = jsonText)),
-            isError = false
-        )
+        return try {
+            val jsonText = json.encodeToString(data)
+            ToolCallResult(
+                content = listOf(ContentBlock.Text(text = formatStructuredPayload(jsonText))),
+                isError = false
+            )
+        } catch (e: Exception) {
+            createErrorResult(formattingFailureMessage(e))
+        }
+    }
+
+    @PublishedApi
+    internal fun formatStructuredPayload(jsonText: String): String {
+        val format = McpSettings.getInstance().responseFormat
+        return ResponseFormatter.formatStructuredPayload(jsonText, format)
+    }
+
+    @PublishedApi
+    internal fun formattingFailureMessage(error: Exception): String {
+        val message = error.message?.takeIf { it.isNotBlank() } ?: "unknown error"
+        return "Response formatting failed: $message"
     }
 }
